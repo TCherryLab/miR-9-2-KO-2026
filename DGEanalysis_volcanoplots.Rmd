@@ -1,0 +1,474 @@
+---
+title: "DGEanalysis_volcanoplots"
+author: "LuLu Callies"
+date: "2025-10-30"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r load libraries}
+library(Seurat)
+library(ggplot2)
+library(presto)
+library(dplyr)
+library(stringr)
+library(EnhancedVolcano)
+library(readxl)
+library(Matrix)
+library(Matrix.utils)
+library(edgeR)
+```
+
+
+```{r load objects}
+e16 <- readRDS(file = 'e16_E14-P2_refmapping.rds')
+p0 <- readRDS(file = 'p0_E14-P2_refmapping.rds')
+wk3 <- readRDS(file = 'wk3_refmapping.rds')
+```
+
+
+```{r Normalize data}
+DefaultAssay(e16) = 'RNA'
+# Normalize based on batch and then rejoin layers
+e16[['RNA']] <- split(e16[['RNA']], f = e16$batch)
+e16 = NormalizeData(e16)
+e16 <- JoinLayers(e16)
+
+DefaultAssay(p0) = 'RNA'
+# Normalize based on batch and then rejoin layers
+p0[['RNA']] <- split(p0[['RNA']], f = p0$batch)
+p0 = NormalizeData(p0)
+p0 <- JoinLayers(p0)
+
+
+DefaultAssay(wk3) = 'RNA'
+# Normalize based on batch and then rejoin layers
+wk3[['RNA']] <- split(wk3[['RNA']], f = wk3$batch)
+wk3 = NormalizeData(wk3)
+wk3 <- JoinLayers(wk3)
+```
+
+
+
+```{r generate list of mir9 predicted targets}
+# import predicted mir9 targets for miR9-3p and miR9-5p, combine targets to make list of all mir9 targets
+targets1 <- data.frame(read_xlsx('TargetScan8.0__miR-9-5p.Mouse.predicted_targets.xlsx'))
+targets2 <- data.frame(read_xlsx('TargetScan8.0__miR-9-3p.Mouse.predicted_targets.xlsx'))
+targets <- c(targets1$Target.gene, targets2$Target.gene)
+targets <- unique(targets)
+```
+
+# Differential expression analysis
+Filter out genes that are too lowly expressed for analysis using edgeR filterbyExp
+Use presto for differential expression 
+
+## E16
+
+```{r differential expression using default presto}
+# create list of celltypes
+celltypes <- c(unique(unique(e16@meta.data$predicted.id)))
+# need to filter out one celltype because it is only present in WT population
+celltypes <- celltypes[-11] # remove 'Developing_AC_HC'
+
+for (i in celltypes){
+  cell <- as.character(i)
+  
+  Idents(e16) = 'predicted.id'
+  subclass <- subset(e16, idents = cell)
+  
+  DefaultAssay(subclass) <- 'RNA'
+  
+  # remove lowly expressed genes in celltype
+  # use edgeR function which filters genes with min count in min number of samples
+  counts <- Seurat2PB(subclass, sample = 'genotype', cluster = 'predicted.id')
+  keep <- edgeR::filterByExpr(counts) # use more lenient parameters than default
+  keep <- keep[keep == TRUE]
+  subclass <- subset(subclass, features = names(keep))
+  
+  # set idents so DGE performed based on genotype
+  Idents(subclass) = 'genotype'
+
+  de = wilcoxauc(subclass, group_by = 'genotype', assay = 'data', seurat_assay = 'RNA')
+  # filter data table to just KO
+  de.ko <- de %>%
+           filter(group == 'KO') %>%
+           arrange(desc(auc))
+
+  # save results
+  write.csv(de.ko, file = paste0('de_presto_e16_E14-P2_ref_', cell, '_edgeRfilterbyExp.csv'))
+}
+```
+
+## P0
+
+```{r differential expression using default presto}
+# create list of celltypes
+celltypes <- c(unique(unique(p0@meta.data$predicted.id)))
+# need to filter out one celltype because it is only present in WT population
+celltypes <- celltypes[-11] # remove microglia
+
+for (i in celltypes){
+  cell <- as.character(i)
+  
+  Idents(p0) = 'predicted.id'
+  subclass <- subset(p0, idents = cell)
+  
+  DefaultAssay(subclass) <- 'RNA'
+  
+  # remove lowly expressed genes in celltype
+  # use edgeR function which filters genes with min count in min number of samples
+  counts <- Seurat2PB(subclass, sample = 'genotype', cluster = 'predicted.id')
+  keep <- edgeR::filterByExpr(counts) # use lenient parameters
+  keep <- keep[keep == TRUE]
+  subclass <- subset(subclass, features = names(keep))
+  
+  # set idents so DGE performed based on genotype
+  Idents(subclass) = 'genotype'
+
+  de = wilcoxauc(subclass, group_by = 'genotype', assay = 'data', seurat_assay = 'RNA')
+  # filter data table to just KO
+  de.ko <- de %>%
+           filter(group == 'KO') %>%
+           arrange(desc(auc))
+
+  # save results
+  write.csv(de.ko, file = paste0('de_presto_p0_E14-P2_ref_', cell, '_edgeRfilterbyExp.csv'))
+}
+```
+
+## 3wk
+
+```{r differential expression using default presto}
+# create list of celltypes
+celltypes <- c(unique(unique(wk3@meta.data$celltype)))
+# need to filter out one celltype because it is only present in WT population
+celltypes <- celltypes[1:7]
+
+for (i in celltypes){
+  cell <- as.character(i)
+  
+  Idents(wk3) = 'celltype'
+  subclass <- subset(wk3, idents = cell)
+  
+  DefaultAssay(subclass) <- 'RNA'
+  
+  # remove lowly expressed genes in celltype
+  # use edgeR function which filters genes with min count in min number of samples
+  counts <- Seurat2PB(subclass, sample = 'genotype', cluster = 'celltype')
+  keep <- edgeR::filterByExpr(counts) # use lenient parameters
+  keep <- keep[keep == TRUE]
+  subclass <- subset(subclass, features = names(keep))
+  
+  # set idents so DGE performed based on genotype
+  Idents(subclass) = 'genotype'
+
+  de = wilcoxauc(subclass, group_by = 'genotype', assay = 'data', seurat_assay = 'RNA')
+  # filter data table to just KO
+  de.ko <- de %>%
+           filter(group == 'KO') %>%
+           arrange(desc(auc))
+
+  # save results
+  write.csv(de.ko, file = paste0('de_presto_wk3_', cell, '_edgeRfilterbyExp.csv'))
+}
+```
+
+
+## Generate volcano plots
+Volcano plot for each cell type at every timepoint
+
+### E16
+
+```{r modify target list to ensure case insensitive}
+targets <- tolower(targets)
+```
+
+```{r create volcano plots for all cell classes}
+celltypes <- unique(e16$predicted.id)
+# remove celltypes with few cells/DEGs
+celltypes <- celltypes[-11]
+celltypes <- celltypes[-10]
+celltypes <- celltypes[-8]
+
+
+for (i in celltypes){
+  
+  clust <- as.character(i)
+  
+  #output of Seurat's differential expression, subset by KO
+  input = read.csv(paste0('de_presto_e16_E14-P2_ref_', clust, '_edgeRfilterbyExp.csv'))
+  
+  labels <- filter(input, input$padj < 0.05) %>%
+    arrange(padj)
+
+  #Manipulate dataframes for downstream analysis
+  input$mir9_target = ifelse(tolower(input$feature) %in% targets, 'yes', 'no')
+  input$mir9_up = ifelse(input$mir9_target == 'yes' & abs(input$logFC) >=0.137504, 'yes', 'no')
+  targs3 = c('C130071C03Rik') 
+  input$linc = ifelse(input$feature %in% targs3, 'yes', 'no')
+  # modified mir9_up so that it shows both upregulated and downregulated mir9 targets
+  # can change it back to upregulated only if you get rid of absolute value around log2FC
+  
+  #Set color and label parameters for volcano plot
+  keyvals = ifelse(input$mir9_up == 'yes', '#7D3C98',  ifelse(input$linc == 'yes', '#F4D03F', ifelse(input$padj > 0.001, 'gray29', ifelse(input$logFC <= 0.137504 & input$logFC >= -0.137504, '#21618C', '#B71C1C')))) 
+  names(keyvals)[keyvals == '#7D3C98'] <- 'Predicted miR-9-2 Target'
+  names(keyvals)[keyvals == '#B71C1C'] <- 'Sig. p-value & logFC'
+  names(keyvals)[keyvals == '#21618C'] <- 'Sig. p-value only'
+  names(keyvals)[keyvals == '#F4D03F'] <- 'miR9-2 host gene'
+  names(keyvals)[keyvals == 'gray29'] <- 'NS'
+  
+  #Define lists of genes to be labeled in plot
+  input$mir9_label = ifelse(input$mir9_target == 'yes' & abs(input$logFC) >=0.26303, 'yes', 'no')
+  mir9 = input[input$mir9_label == 'yes',]
+  targs2 = as.character(mir9$feature)
+  targs3 = c('C130071C03Rik')
+  targs4 = labels$feature[1:20]
+  targs5 = labels$feature[(length(labels$feature)-19):length(labels$feature)]
+  targs = c(targs2, targs3, targs4, targs5)
+
+#Generate labeled volcano plot, with genes of interest labeled, colored, and increased in size
+  volcano <- EnhancedVolcano(input,
+                             lab = as.character(input$feature),
+                              x = 'logFC',
+                              y = 'padj',
+                              xlab = bquote(~Log[2]~ 'fold change'),
+                              xlim = c((min(input$logFC)-0.1), (max(input$logFC)+0.1)),
+                              title = "",
+                              subtitle = "",
+                              selectLab = targs,
+                              FCcutoff = 0.137504,
+                              pCutoff = 0.001,
+                              colAlpha = 3/4,
+                              colCustom = keyvals,
+                              labSize = 4,
+                              pointSize = c(ifelse(input$linc == 'yes', 2, ifelse(input$mir9_up == 'yes', 2, 1))),
+                              drawConnectors = T,
+                              legendPosition = 'right',
+                              legendLabSize = 12,
+                              legendIconSize = 4.0,
+                              max.overlaps = Inf
+                             )                
+
+
+ggsave(volcano, filename = paste0('e16_E14-P2-ref_volcanoplot_', clust, '_edgeRfilterbyExp.pdf'), width = 10)
+}
+```
+
+```{r customize plots for figures}
+celltypes <- c('Early_Progenitors', 'Late_Progenitors', 'HC_AC_Precursors')
+
+for (i in celltypes){
+  
+  clust <- as.character(i)
+  
+  #output of Seurat's differential expression, subset by KO
+  input = read.csv(paste0('/data/hps/assoc/private/cherrylab/user/kcalli/E16_analysis/allsamples/DGE/de_presto_e16_E14-P2_ref_', clust, '_edgeRfilterbyExp.csv'))
+
+
+  #Manipulate dataframes for downstream analysis
+  input$mir9_target = ifelse(tolower(input$feature) %in% targets, 'yes', 'no')
+  input$linc = ifelse(tolower(input$feature) == 'c130071c03rik' , 'yes', 'no')
+  # modified mir9_up so that it shows both upregulated and downregulated mir9 targets
+  # can change it back to upregulated only if you get rid of absolute value around log2FC
+  
+  #Set color and label parameters for volcano plot
+  keyvals = ifelse(input$mir9_target == 'yes', '#7D3C98',  ifelse(input$linc == 'yes', '#F4D03F', ifelse(input$padj > 0.001, 'gray29', ifelse(input$logFC <= 0.137504 & input$logFC >= -0.137504, '#21618C', '#B71C1C')))) 
+  names(keyvals)[keyvals == '#7D3C98'] <- 'Predicted miR-9-2 Target'
+  names(keyvals)[keyvals == '#B71C1C'] <- 'Sig. p-value & logFC'
+  names(keyvals)[keyvals == '#21618C'] <- 'Sig. p-value only'
+  names(keyvals)[keyvals == '#F4D03F'] <- 'miR9-2 host gene'
+  names(keyvals)[keyvals == 'gray29'] <- 'NS'
+  
+  #Define lists of genes to be labeled in plot
+  genelist <- input %>%
+    filter(padj < 0.001) %>%
+    filter(mir9_target == "no") %>%
+    arrange(padj)
+  
+  mir9_targs <- input %>%
+    filter(padj < 0.001) %>%
+    filter(mir9_target == "yes") %>%
+    arrange(padj)
+  
+  targs = c(genelist$feature[1:20], mir9_targs$feature[1:20])
+
+#Generate labeled volcano plot, with genes of interest labeled, colored, and increased in size
+volcano <- EnhancedVolcano(input,
+                            lab = as.character(input$feature),
+                            x = 'logFC',
+                            y = 'padj',
+                            xlab = bquote(~Log[2]~ 'fold change'),
+                            xlim = c((min(input$logFC)-0.1), (max(input$logFC)+0.1)),
+                            title = clust,
+                            subtitle = "",
+                            selectLab = targs,
+                            FCcutoff = 0.137504,
+                            pCutoff = .001,
+                            colAlpha = 3/4,
+                            colCustom = keyvals,
+                            labSize = 4,
+                            pointSize = c(ifelse(input$linc == 'yes', 3, ifelse(input$mir9_target == 'yes', 2, 1))),
+                            drawConnectors = T,
+                            max.overlaps = Inf,
+                           arrowheads = F,
+                           gridlines.major = F,
+                           gridlines.minor = F,
+                           borderWidth = 0.5
+                           ) +
+              NoLegend()
+
+volcano
+
+ggsave(volcano, filename = paste0(output_dir, 'e16_', clust, '_volcanoplot_', Sys.Date(), '.pdf'), units = "in", width = 6.5, height = 6.5)
+}
+```
+
+### P0 
+
+```{r create volcano plots for all cell classes}
+celltypes <- unique(p0$predicted.id)
+# remove celltypes with few cells/DEGs
+celltypes <- celltypes[1:9]
+celltypes <- celltypes[-7]
+
+
+for (i in celltypes){
+  
+  clust <- as.character(i)
+  
+  #output of Seurat's differential expression, subset by KO
+  input = read.csv(paste0('de_presto_p0_E14-P2_ref_', clust, '_edgeRfilterbyExp.csv'))
+  
+  labels <- filter(input, input$padj < 0.05) %>%
+    arrange(padj)
+
+  #Manipulate dataframes for downstream analysis
+  input$mir9_target = ifelse(tolower(input$feature) %in% targets, 'yes', 'no')
+  input$mir9_up = ifelse(input$mir9_target == 'yes' & abs(input$logFC) >=0.137504, 'yes', 'no')
+  targs3 = c('C130071C03Rik') 
+  input$linc = ifelse(input$feature %in% targs3, 'yes', 'no')
+  # modified mir9_up so that it shows both upregulated and downregulated mir9 targets
+  # can change it back to upregulated only if you get rid of absolute value around log2FC
+  
+  #Set color and label parameters for volcano plot
+  keyvals = ifelse(input$mir9_up == 'yes', '#7D3C98',  ifelse(input$linc == 'yes', '#F4D03F', ifelse(input$padj > 0.001, 'gray29', ifelse(input$logFC <= 0.137504 & input$logFC >= -0.137504, '#21618C', '#B71C1C')))) 
+  names(keyvals)[keyvals == '#7D3C98'] <- 'Predicted miR-9-2 Target'
+  names(keyvals)[keyvals == '#B71C1C'] <- 'Sig. p-value & logFC'
+  names(keyvals)[keyvals == '#21618C'] <- 'Sig. p-value only'
+  names(keyvals)[keyvals == '#F4D03F'] <- 'miR9-2 host gene'
+  names(keyvals)[keyvals == 'gray29'] <- 'NS'
+  
+  #Define lists of genes to be labeled in plot
+  input$mir9_label = ifelse(input$mir9_target == 'yes' & abs(input$logFC) >=0.26303, 'yes', 'no')
+  mir9 = input[input$mir9_label == 'yes',]
+  targs2 = as.character(mir9$feature)
+  targs3 = c('C130071C03Rik')
+  targs4 = labels$feature[1:20]
+  targs5 = labels$feature[(length(labels$feature)-19):length(labels$feature)]
+  targs = c(targs2, targs3, targs4, targs5)
+
+#Generate labeled volcano plot, with genes of interest labeled, colored, and increased in size
+  volcano <- EnhancedVolcano(input,
+                             lab = as.character(input$feature),
+                              x = 'logFC',
+                              y = 'padj',
+                              xlab = bquote(~Log[2]~ 'fold change'),
+                              xlim = c((min(input$logFC)-0.1), (max(input$logFC)+0.1)),
+                              title = "",
+                              subtitle = "",
+                              selectLab = targs,
+                              FCcutoff = 0.137504,
+                              pCutoff = .001,
+                              colAlpha = 3/4,
+                              colCustom = keyvals,
+                              labSize = 4,
+                              pointSize = c(ifelse(input$linc == 'yes', 2, ifelse(input$mir9_up == 'yes', 2, 1))),
+                              drawConnectors = T,
+                              legendPosition = 'right',
+                              legendLabSize = 12,
+                              legendIconSize = 4.0,
+                              max.overlaps = Inf
+                             )                
+
+
+ggsave(volcano, filename = paste0('p0_E14-P2-ref_volcanoplot_', clust, '_edgeRfilterbyExp_2025-11.pdf'), width = 10)
+}
+```
+
+
+
+### 3wk
+
+```{r create volcano plots for all cell classes}
+celltypes <- unique(wk3$celltype)
+# remove celltypes with few cells/DEGs
+celltypes <- celltypes[1:7]
+
+for (i in celltypes){
+  
+  clust <- as.character(i)
+  
+  #output of Seurat's differential expression, subset by KO
+  input = read.csv(paste0('de_presto_wk3_', clust, '_edgeRfilterbyExp.csv'))
+  
+  labels <- filter(input, input$padj < 0.05) %>%
+    arrange(padj)
+
+  #Manipulate dataframes for downstream analysis
+  input$mir9_target = ifelse(tolower(input$feature) %in% targets, 'yes', 'no')
+  input$mir9_up = ifelse(input$mir9_target == 'yes' & abs(input$logFC) >=0.137504, 'yes', 'no')
+  targs3 = c('C130071C03Rik') 
+  input$linc = ifelse(input$feature %in% targs3, 'yes', 'no')
+  # modified mir9_up so that it shows both upregulated and downregulated mir9 targets
+  # can change it back to upregulated only if you get rid of absolute value around log2FC
+  
+  #Set color and label parameters for volcano plot
+  keyvals = ifelse(input$mir9_up == 'yes', '#7D3C98',  ifelse(input$linc == 'yes', '#F4D03F', ifelse(input$padj > 0.001, 'gray29', ifelse(input$logFC <= 0.137504 & input$logFC >= -0.137504, '#21618C', '#B71C1C')))) 
+  names(keyvals)[keyvals == '#7D3C98'] <- 'Predicted miR-9-2 Target'
+  names(keyvals)[keyvals == '#B71C1C'] <- 'Sig. p-value & logFC'
+  names(keyvals)[keyvals == '#21618C'] <- 'Sig. p-value only'
+  names(keyvals)[keyvals == '#F4D03F'] <- 'miR9-2 host gene'
+  names(keyvals)[keyvals == 'gray29'] <- 'NS'
+  
+  #Define lists of genes to be labeled in plot
+  input$mir9_label = ifelse(input$mir9_target == 'yes' & abs(input$logFC) >=0.26303, 'yes', 'no')
+  mir9 = input[input$mir9_label == 'yes',]
+  targs2 = as.character(mir9$feature)
+  targs3 = c('C130071C03Rik')
+  targs4 = labels$feature[1:20]
+  targs5 = labels$feature[(length(labels$feature)-19):length(labels$feature)]
+  targs = c(targs2, targs3, targs4, targs5)
+
+#Generate labeled volcano plot, with genes of interest labeled, colored, and increased in size
+  volcano <- EnhancedVolcano(input,
+                             lab = as.character(input$feature),
+                              x = 'logFC',
+                              y = 'padj',
+                              xlab = bquote(~Log[2]~ 'fold change'),
+                              xlim = c((min(input$logFC)-0.1), (max(input$logFC)+0.1)),
+                              title = "",
+                              subtitle = "",
+                              selectLab = targs,
+                              FCcutoff = 0.137504,
+                              pCutoff = 0.001,
+                              colAlpha = 3/4,
+                              colCustom = keyvals,
+                              labSize = 4,
+                              pointSize = c(ifelse(input$linc == 'yes', 2, ifelse(input$mir9_up == 'yes', 2, 1))),
+                              drawConnectors = T,
+                              legendPosition = 'right',
+                              legendLabSize = 12,
+                              legendIconSize = 4.0,
+                              max.overlaps = Inf
+                             )                
+
+
+ggsave(volcano, filename = paste0('wk3_volcanoplot_', clust, '_edgeRfilterbyExp.pdf'), width = 10)
+}
+```
+
+

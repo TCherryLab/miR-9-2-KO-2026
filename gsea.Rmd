@@ -1,0 +1,150 @@
+---
+title: "mir9KO_pathway_analysis"
+author: "LuLu Callies"
+date: "2025-11-04"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Pathway Analysis
+Using fgsea from clusterprofiler to run pathway analysis with reference database:Gene Ontology Biological Processes (GO-BP)
+
+# Setup 
+```{r load libraries}
+library(Seurat)
+library(tidyverse)
+library(enrichR)
+library(clusterProfiler)
+library(fgsea)
+library(forcats)
+library(org.Mm.eg.db)
+library(viridis)
+```
+
+```{r load objects}
+# load in object
+e16 <- readRDS(file = 'e16_E14-P2_refmapping.rds')
+p0 <- readRDS(file = 'p0_E14-P2_refmapping.rds')
+wk3 <- readRDS(file = 'wk3_refmapping.rds')
+```
+
+## E16
+
+```{r run clusterprofiler gsea and generate plots}
+celltypes <- unique(e16$predicted.id)
+celltypes <- c(celltypes[1:5], celltypes[9]) # remove classes with low numbers of cell types
+
+for (type in celltypes){
+  ## 1. Read in data by celltype 
+  df <- read.csv(paste0('de_presto_e16_E14-P2_ref_', type,'_edgeRfilterbyExp.csv'))
+  
+  # create rankings for deg
+  rankings <- (df$auc)*sign(df$logFC) # use area under the curve and sign of FC for ranking
+  names(rankings) <- df$feature # genes as names#
+  # sort rankings
+  rankings <- sort(rankings, decreasing = TRUE)
+  
+  ## 2. Run GSEA
+  ego <- gseGO(geneList = rankings,
+               keyType = 'ALIAS',
+               OrgDb = org.Mm.eg.db,
+               ont = 'BP')
+  
+  ego_save <- as.data.frame(ego)
+  write.csv(ego_save, file = paste0('e16_clusterprofiler_', type, '_result.csv'))
+  
+  ## 3. Plot results -- dotplot
+  #pathways up
+  dotplot(ego, showCategory=10)
+  ggsave(filename = paste0('e16_clusterprofiler_', type, '_top10up_dotplot.pdf'), height = 6.5, units = 'in')
+  
+  # pathways down
+  rowlength = nrow(ego@result)
+  down10 <- ego[(rowlength-9):rowlength,]
+  paths <- down10$Description
+  dotplot(ego, showCategory=paths)
+  ggsave(filename = paste0('e16_clusterprofiler_', type, '_top10down_dotplot.pdf'), height = 6.5, units = 'in')
+}
+```
+
+## P0
+
+```{r run clusterprofiler gsea and generate plots}
+celltypes <- unique(p0$predicted.id)
+celltypes <- celltypes[1:6] # remove classes with low cell count
+
+for (type in celltypes){
+  ## 1. Read in data by celltype -----------------------------------------------------------
+  df <- read.csv(paste0('/data/hps/assoc/private/cherrylab/user/kcalli/P0_analysis/AllSamples/DGE/de_presto_p0_E14-P2_ref_', type,'_edgeRfilterbyExp.csv'))
+  
+  # create rankings for deg
+  rankings <- (df$auc)*sign(df$logFC) # use area under the curve and sign of FC for ranking
+  names(rankings) <- df$feature # genes as names#
+  # sort rankings
+  rankings <- sort(rankings, decreasing = TRUE)
+  
+  ## 2. Run GSEA
+  ego <- gseGO(geneList = rankings,
+               keyType = 'ALIAS',
+               OrgDb = org.Mm.eg.db,
+               ont = 'BP')
+  
+  ego_save <- as.data.frame(ego)
+  write.csv(ego_save, file = paste0('p0_clusterprofiler_', type, '_result.csv'))
+  
+  ## 3. Plot simplified results -- barplot
+  #pathways up
+  dotplot(ego, showCategory=10)
+  ggsave(filename = paste0('p0_clusterprofiler_', type, '_top10up_dotplot.pdf'), height = 6.5, units = 'in')
+  
+  # pathways down
+  rowlength = nrow(ego@result)
+  down10 <- ego[(rowlength-9):rowlength,]
+  paths <- down10$Description
+  dotplot(ego, showCategory=paths)
+  ggsave(filename = paste0('p0_clusterprofiler_', type, '_top10down_dotplot.pdf'), height = 6.5, units = 'in')
+}
+```
+
+
+## 3wk
+
+```{r run clusterprofiler gsea and generate plots}
+celltypes <- unique(wk3$celltype)
+celltypes <- celltypes[1:7] # remove classes with low cell count
+
+for (type in celltypes){
+  ## 1. Read in data by celltype -----------------------------------------------------------
+  df <- read.csv(paste0('/data/hps/assoc/private/cherrylab/user/kcalli/3wk_analysis/DGE/de_presto_wk3_', type,'_edgeRfilterbyExp.csv'))
+  
+  # create rankings for deg
+  rankings <- (df$auc)*sign(df$logFC) # use area under the curve and sign of FC for ranking
+  names(rankings) <- df$feature # genes as names#
+  # sort rankings
+  rankings <- sort(rankings, decreasing = TRUE)
+  
+  ## 2. Run GSEA
+  ego <- gseGO(geneList = rankings,
+               keyType = 'ALIAS',
+               OrgDb = org.Mm.eg.db,
+               ont = 'BP')
+  
+  ego_save <- as.data.frame(ego)
+  write.csv(ego_save, file = paste0('wk3_clusterprofiler_', type, '_result.csv'))
+  
+  ## 3. Plot simplified results -- barplot
+  #pathways up
+  dotplot(ego, showCategory=30)
+  ggsave(filename = paste0('wk3_clusterprofiler_', type, '_top10up_dotplot.pdf'), height = 6.5, units = 'in')
+  
+  # pathways down
+  rowlength = nrow(ego@result)
+  down10 <- ego[(rowlength-9):rowlength,]
+  paths <- down10$Description
+  dotplot(ego, showCategory=paths)
+  ggsave(filename = paste0('wk3_clusterprofiler_', type, '_top10down_dotplot.pdf'), height = 6.5, units = 'in')
+}
+```

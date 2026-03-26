@@ -1,0 +1,709 @@
+---
+title: "mir9enhancerKO_mice"
+author: "LuLu Callies"
+date: "2025-04-20"
+output: html_document
+---
+
+# Setup
+
+```{r load libraries}
+library(Seurat)
+library(SeuratData)
+library(sctransform)
+library(patchwork)
+library(dplyr)
+library(ggplot2)
+library(harmony)
+```
+
+```{r Adjust the maximum size of global objects}
+# (this may need to be increased later)
+options(future.globals.maxSize = 200 * 1024^3)
+```
+
+
+# Load in data
+
+```{r Read the 10x files}
+#wildtype
+eWT1.data <- Read10X_h5('WT1_cb_output_filtered_seurat.h5') # Cellbender model never completely converged for ELBO
+eWT2.data <- Read10X_h5('WT2_cb_output_filtered_seurat.h5') # Cellbender model never completely converged for ELBO
+eWT3.data <- Read10X_h5('WT3_cb_output_filtered_seurat.h5')
+eKO1.data <- Read10X_h5('KO1_cb_output_filtered_seurat.h5') # Cellbender model never completely converged for ELBO
+eKO2.data <- Read10X_h5('KO2_cb_output_filtered_seurat.h5')
+eKO3.data <- Read10X_h5('KO3_cb_output_filtered_seurat.h5')
+```
+
+# Create Seurat objects
+```{r Create Seurat objects}
+#wildtype
+eWT1 <- CreateSeuratObject(counts = eWT1.data, project = "eWT1", min.cells = 3, min.features = 200)
+eWT2 <- CreateSeuratObject(counts = eWT2.data, project = "eWT2", min.cells = 3, min.features = 200)
+eWT3 <- CreateSeuratObject(counts = eWT3.data, project = "eWT3", min.cells = 3, min.features = 200)
+#knockout
+eKO1 <- CreateSeuratObject(counts =  eKO1.data, project = "eKO1", min.cells = 3, min.features = 200)
+eKO2 <- CreateSeuratObject(counts = eKO2.data, project = "eKO2", min.cells = 3, min.features = 200)
+eKO3 <- CreateSeuratObject(counts =  eKO3.data, project = "eKO3", min.cells = 3, min.features = 200)
+```
+
+```{r add mitochondrial percentages}
+#wildtype
+eWT1[["percent.mt"]] <- PercentageFeatureSet(eWT1, pattern = "^mt-")
+eWT2[["percent.mt"]] <- PercentageFeatureSet(eWT2, pattern = "^mt-")
+eWT3[["percent.mt"]] <- PercentageFeatureSet(eWT3, pattern = "^mt-")
+#knockout
+eKO1[["percent.mt"]] <- PercentageFeatureSet(eKO1, pattern = "^mt-")
+eKO2[["percent.mt"]] <- PercentageFeatureSet(eKO2, pattern = "^mt-")
+eKO3[["percent.mt"]] <- PercentageFeatureSet(eKO3, pattern = "^mt-")
+```
+
+```{r Visualize QC metrics}
+# (will split by 'orig.ident')
+samples <- c('eWT1', 'eWT2', 'eWT3', 'eKO1', 'eKO2', 'eKO3')
+
+for (x in samples){
+  obj <- get(x)
+  
+  VlnPlot(obj, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, pt.size=0, log = TRUE)
+  ggsave(file= paste0(x, '_qc.pdf'))
+}
+```
+
+```{r Subset the data based on QC metric cutoffs}
+#wildtype
+eWT1 <- subset(eWT1, subset = nCount_RNA > 300 & nCount_RNA < 10000 & percent.mt < 5)
+eWT2 <- subset(eWT2, subset = nCount_RNA > 300 & nCount_RNA < 10000 & percent.mt < 5)
+eWT3 <- subset(eWT3, subset = nCount_RNA > 300 & nCount_RNA < 10000 & percent.mt < 5)
+#knockout
+eKO1 <- subset(eKO1, subset = nCount_RNA > 300 & nCount_RNA < 10000 & percent.mt < 5)
+eKO2 <- subset(eKO2, subset = nCount_RNA > 300 & nCount_RNA < 10000 & percent.mt < 5)
+eKO3 <- subset(eKO3, subset = nCount_RNA > 300 & nCount_RNA < 10000 & percent.mt < 5)
+```
+
+```{r merge into single object}
+enh <- merge(eWT1, y = c(eWT2, eWT3, eKO1, eKO2, eKO3),
+             add.cell.ids = c('eWT1', 'eWT2', 'eWT3', 'eKO1', 'eKO2', 'eKO3'))
+```
+
+```{r Visualize QC metrics}
+# (will split by 'orig.ident')
+VlnPlot(enh, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, pt.size=0, log = TRUE)
+ggsave(file= 'enh_QC.pdf')
+```
+
+```{r add metadata}
+enh$genotype <- plyr::mapvalues(
+  x = enh$orig.ident, 
+  from = c('eWT1', 'eWT2', 'eWT3', 'eKO1', 'eKO2', 'eKO3'), 
+  to = c('WT','WT', 'WT', 'KO', 'KO','KO')
+)
+
+```
+
+
+```{r Save merged Seurat objects}
+saveRDS(enh, file = "enh.rds")
+```
+
+# Initial Analysis
+
+```{r load in data}
+enh <- readRDS("enh.rds")
+```
+
+```{r Run SCTransform and PCA}
+# Normalize data by batch
+enh <- JoinLayers(enh)
+enh[['RNA']] <- split(enh[['RNA']], f = enh$orig.ident)
+
+#Run normalization
+enh <- SCTransform(enh, vars.to.regress = "percent.mt", verbose = FALSE)
+enh <- RunPCA(enh, verbose = FALSE)
+```
+
+```{r Visualize samples in PCA space}
+DimPlot(enh, reduction = 'pca')
+ggsave(file= 'enh_pca.pdf')
+
+DimPlot(enh, reduction = 'pca', split.by = 'orig.ident', ncol = 5)
+ggsave(file= 'enh_pca_bysample.pdf')
+
+ElbowPlot(enh, ndims=30)
+ggsave(file= 'enh_elbow.pdf')
+```
+
+```{r Generate/visualize UMAP}
+enh <- RunUMAP(enh, dims = 1:30, verbose = FALSE)
+
+DimPlot(enh)
+ggsave(file= 'enh_umap.unintegrated_bysample.pdf')
+
+DimPlot(enh, group.by = 'genotype')
+ggsave(file= 'enh_umap.unintegrated_groupbygenotype.pdf')
+
+DimPlot(enh, group.by = 'genotype', split.by = 'genotype')
+ggsave(file= 'enh_umap.unintegrated_splitbygenotype.pdf')
+
+DimPlot(enh, group.by = 'orig.ident')
+ggsave(file= 'enh_umap.unintegrated_groupbysample.pdf')
+
+DimPlot(enh, split.by = 'orig.ident')
+ggsave(file= 'enh_umap.unintegrated_splitbysample.pdf')
+```
+
+No need to use any sort of integration since the PCAs and UMAPs all appear to overlap and look similar
+
+```{r finish inital processing}
+# finish analysis
+enh <- FindNeighbors(enh, dims = 1:30)
+enh <- FindClusters(enh, resolution = 0.4)
+enh <- RunUMAP(enh, dims = 1:30)
+```
+
+```{r visualize cluster umap}
+DimPlot(enh)
+ggsave(file= 'enh_clusters_bysample.pdf')
+
+DimPlot(enh, split.by = 'orig.ident')
+ggsave(file= 'enh_clusters_splitbysample.pdf')
+```
+
+```{r Save object}
+DefaultAssay(enh) = 'RNA'
+enh <- JoinLayers(enh)
+saveRDS(enh, file = "enh_clusters.rds")
+```
+
+# Cluster ID
+
+```{r reload object}
+#reload
+enh <- readRDS('enh_clusters.rds')
+```
+
+```{r Re-normalize}
+#Set default assay to RNA, then re-normalize (SCT assay is good for data visualization but not quantitative comparisons, according to Satija lab)
+DefaultAssay(enh) = 'RNA'
+enh = NormalizeData(enh)
+```
+
+```{r look at QC by cluster}
+VlnPlot(enh, features = c('nFeature_RNA', 'nCount_RNA', 'percent.mt'), pt.size=0)+NoLegend()
+ggsave(file= 'enh_cluster_qc.pdf', width=20, height=10)
+```
+
+## Find clustermarkers
+
+```{r find cluster markers}
+markers <- FindAllMarkers(enh, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
+write.csv(markers, file= 'enh_clustermarkers.csv')
+```
+
+
+
+## Automated cluster ID -- scMCA
+
+```{r load libraries}
+library(SingleCellExperiment)
+library(scran)
+library(scater)
+library(dplyr)
+library(scMCA)
+library(Seurat)
+library(ggplot2)
+library(stringr)
+```
+
+```{r Adjust size of objects}
+# Adjust the maximum size of global objects (this may need to be increased later)
+options(future.globals.maxSize = 200 * 1024^3)
+```
+
+```{r load in data}
+#data should be a SingleCellExperiment object, of normalized log counts
+#load in Seurat object, with samples GEX-all and subset
+enh <- readRDS('enh_clusters.rds')
+
+#retrieve normalized logcounts
+DefaultAssay(enh) = 'RNA'
+enh = NormalizeData(enh)
+
+# Retrieve or set data in an expression matrix ('counts', 'data', and 'scale.data')
+mat <- GetAssayData(object = enh, layer = "counts")
+```
+
+```{r Run scMCA}
+# scMCA has two parameters , single cell expression matrix(scdata) and the number of most similar cell types
+set.seed(1234)
+mca_result <- scMCA(scdata =  mat, numbers_plot = 3)
+save(mca_result,file = "enh_mca_result.RData")
+#load results
+load('enh_mca_result.RData')
+```
+
+cors_matrix: Pearson correlation coefficient matrix of each cell and cell type.
+top_cors: equals to numbers_plot
+scMCA: the most relevant cell type for each query cell
+scMCA_probility: the top n relevant cell types for each query cell
+
+```{r Pull out relevant cell types}
+# Extract the top probable
+p <- mca_result$scMCA_probility
+names(p) <- c("Cell","Cell_type", "Score") 
+
+# For each cell select only those that have to do with retinas or at least 300 cells had that cell type as top one
+freq_cell <- data.frame(table(p$Cell_type))
+freq_cell <- freq_cell[stringr::str_detect( freq_cell$Var1,'Retina') | freq_cell$Freq>300, ] 
+
+
+# Save the relevant cell types
+relevant_cell_types <- freq_cell$Var1
+
+# Check the cells wich top 10 cell clusters are not "relative to this study"
+p <- p %>% group_by(Cell) %>% mutate(has_cluster= any(Cell_type%in%relevant_cell_types) )
+ignore_cells <- unique(p$Cell[d$has_cluster==F])
+length(ignore_cells)/length(unique(p$Cell))
+```
+
+
+```{r Extract cluster IDs}
+ignore_p <- p[p$Cell%in%ignore_cells,]
+ignore_p$Cell_type <- NA
+ignore_p$Score <- 0
+ignore_p$has_cluster <- F
+ignore_p <- unique(ignore_p)
+
+# Select the final selection of cells and their group
+mca_labels <- p %>% group_by(Cell) %>% dplyr::filter(Cell_type%in%relevant_cell_types) %>% dplyr::filter(Score==max(Score)) %>% as.data.frame()
+mca_labels <- rbind(mca_labels,ignore_p)
+mca_labels$Cell <- as.character(mca_labels$Cell)
+rownames(mca_labels) <- mca_labels$Cell
+
+# extract just the new cluster ids from mca pipeline
+mca_clusters <- as.data.frame(mca_labels$Cell_type)
+rownames(mca_clusters) <- rownames(mca_labels)
+colnames(mca_clusters) <- 'celltype'
+```
+
+```{r replace mca names}
+# string replace mca cluster names with shortened versions
+mca_clusters$mca_clusters <- case_when(
+  mca_clusters$mca_clusters == "Rods(Retina)" ~ "Rods",
+  mca_clusters$mca_clusters == "Cones(Retina)" ~ "Cones",
+  mca_clusters$mca_clusters == "Amacrine cell_Tfap2b_high(Retina)" ~ "Amacrine_cells",
+  mca_clusters$mca_clusters == "Rgs16 neurons(Arc-Me)" ~ "Rgs16",
+  mca_clusters$mca_clusters == "Pericytes(Retina)" ~ "Pericytes",
+  mca_clusters$mca_clusters == "Horizontal cells(Retina)" ~ "Horizontal_cells",
+  mca_clusters$mca_clusters == "Retinal ganglion cells(Retina)" ~ "Retinal_ganglion_cells",
+  mca_clusters$mca_clusters == "Amacrine cells_Rims1_high(Retina)" ~ "Amacrine_cells",
+  mca_clusters$mca_clusters == "Microglia(Retina)" ~ "Microglia",
+  mca_clusters$mca_clusters == "Muller glia(Retina)" ~ "Muller_glia",
+  mca_clusters$mca_clusters == "Fibroblasts(Retina)" ~ "Fibroblasts",
+  mca_clusters$mca_clusters == "Astrocytes(Retina)" ~ "Astrocytes",
+  mca_clusters$mca_clusters == "Vascular endothelium(Retina)" ~ "Vascular_endothelium",
+  mca_clusters$mca_clusters == "Amacrine cell_Cplx2_high(Retina)" ~ "Amacrine_cells",
+  mca_clusters$mca_clusters == "Amacrine cell_Lamp5_high(Retina)" ~ "Amacrine_cells",
+  mca_clusters$mca_clusters == "Bipolar cell_Gsg1_high(Retina)" ~ "Bipolar_cells",
+  mca_clusters$mca_clusters == "Bipolar cell_Vsx1_high(Retina)" ~ "Bipolar_cells",
+  mca_clusters$mca_clusters == "Bipolar cell_Lhx4_high(Retina)" ~ "Bipolar_cells",
+  mca_clusters$mca_clusters == "Bipolar cell_Slit2_high(Retina)" ~ "Bipolar_cells",
+  mca_clusters$mca_clusters == "Bipolar cells_Pcp2_high(Retina)" ~ "Bipolar_cells"
+)
+```
+
+```{r add metadata to Seurat object}
+enh <- readRDS('enh_clusters.rds')
+enh <- AddMetaData(enh, mca_clusters)
+head(enh@meta.data)
+```
+
+```{r save object}
+saveRDS(enh, 'enh_mca.rds')
+# this annotated object submitted to GEO as 'enh.rds'
+```
+
+
+```{r umap by mca clusters}
+DimPlot(enh, group.by = 'celltype')
+ggsave(file= 'enh_umap_celltype.pdf', height=7, width=15, dpi=72)
+
+DimPlot(enh, label=TRUE, group.by = 'celltype') + NoLegend()
+ggsave(file= 'enh_umap_celltype_labeled.pdf', height=7, width=15, dpi=72)
+```
+
+```{r make umaps with custom palette}
+# make capitalization match palette
+enh$celltype <- plyr::mapvalues(
+  x = enh$celltype, 
+  from = c(unique(enh$celltype)), 
+  to = c('Cones', 'Amacrine_Cells', 'Bipolar_Cells', 'Muller_Glia', 'Rods', 'Retinal_Ganglion_Cells', 'Horizontal_Cells', unique(enh$mca_clusters)[8:14])
+)
+
+palette3 <- c("Amacrine_Cells" = "#332288", "Developing_AC_HC" = "#117733", "Developing_Cones" = "#44AA99", "Developing_Rods" = "#CC6677" , "Early_Progenitors" = "#666633", "HC_AC_Precursors" = "#DDCC77", "HC_AC_RGC_Precursors" = "#33BBEE", "Late_Progenitors" = "#882255", "Neurogenic_Precursors" = "#AA4499", "Retinal_Ganglion_Cells" = "#EE7733", "Bipolar_Cells" = "#66CCEE", "Cones" = "#228833", "Horizontal_Cells" = "#CCBB44", "Muller_Glia" = "#EE6677", "Rods" = "#AA3377")
+
+enh <- subset(enh, subset = !(is.na(celltype)))
+
+DimPlot(enh, group.by = 'celltype', cols = palette3)
+ggsave(file= 'enh_umap_celltype_palette3.pdf', height=7, width=15, dpi=72)
+
+DimPlot(enh, label=TRUE, group.by = 'celltype', cols = palette3) + NoLegend()
+ggsave(file= 'enh_umap_celltype_labeled_palette3.pdf', height=7, width=15, dpi=72)
+```
+
+
+```{r differential expression using default presto}
+library(presto)
+library(Seurat)
+library(edgeR)
+
+# load object
+enh <- readRDS('enh_mca.rds')
+# need to re-normalize data because its best to use RNA assay for differential expression
+#Set default assay to RNA, then re-normalize (SCT assay is good for data visualization but not quantitative comparisons, according to Satija lab)
+DefaultAssay(enh) = 'RNA'
+enh = NormalizeData(enh)
+
+# create list of celltypes
+celltypes <- c(unique(enh$celltype))
+# need to filter out one celltype because it is only present in WT population
+celltypes <- celltypes[1:7]
+
+for (i in celltypes){
+  cell <- as.character(i)
+  
+  Idents(enh) = 'celltype'
+  subclass <- subset(enh, idents = cell)
+  
+  DefaultAssay(subclass) = 'RNA'
+  
+  # remove lowly expressed genes in celltype
+  # use edgeR function which filters genes with min count in min number of samples
+  counts <- Seurat2PB(subclass, sample = 'genotype', cluster = "celltype")
+  keep <- edgeR::filterByExpr(counts) # use lenient parameters
+  keep <- names(keep[keep == TRUE])
+  subclass <- DietSeurat(subclass, layers = 'data', features = keep, assays = 'RNA')
+
+  
+  # set idents so DGE performed based on genotype
+  Idents(subclass) = 'genotype'
+
+  de = wilcoxauc(subclass, group_by = 'genotype', assay = 'data', seurat_assay = 'RNA')
+  # filter data table to just KO
+  de.ko <- de %>%
+           filter(group == 'KO') %>%
+           arrange(desc(auc))
+
+  # save results
+  write.csv(de.ko, file = paste0('de_presto_enhko_', cell, '_edgeRfilterbyExp.csv'))
+}
+```
+
+```{r pseudobulk dge using presto}
+# pseudobulk analysis which includes all celltypes lumped together
+
+counts <- Seurat2PB(enh, sample = 'genotype', cluster = 'celltype')
+keep <- edgeR::filterByExpr(counts) # use lenient parameters
+keep <- names(keep[keep == TRUE])
+keep <- DietSeurat(enh, layers = 'data', features = keep, assays = 'RNA')
+  
+# run analysis
+de = wilcoxauc(enh, group_by = 'genotype', assay = 'data', seurat_assay = 'RNA')
+
+# filter data to just knockout and order
+de.ko <- de %>%
+         filter(group == 'KO') %>%
+         arrange(desc(auc))
+
+# save results
+write.csv(de.ko, file = 'de_enh_presto_pseudobulk_filterbyexp.csv')
+```
+
+
+```{r cell counts}
+write.csv(table(enh$orig.ident, enh$celltype), file = 'enh_cellcounts_bycelltype.csv')
+```
+
+```{r generate plots of mir9 hg expression}
+enh <- readRDS('enh_mca.rds')
+
+DefaultAssay(enh) = 'RNA'
+enh = NormalizeData(enh)
+
+# generate violin plot of muller glia WT and KO
+mg <- subset(enh, subset = celltype == 'Muller_glia')
+mg$genotype <- factor(mg$genotype, levels = c('WT', 'KO'))
+
+VlnPlot(mg, features = 'C130071C03Rik', pt.size = 0, group.by = 'genotype', cols = c('gray40', 'lightgray')) +
+  # Add mean as a large, red diamond point
+  stat_summary(
+    fun = mean,
+    geom = "point",
+    shape = 18,
+    size = 4,
+    color = "black"
+  ) 
+
+ggsave(file = 'violinplot_mg_mir9-2hg_expression.pdf', height = 10)
+
+
+wt <- subset(enh, subset = genotype == 'WT')
+DotPlot(wt, features = 'C130071C03Rik', cols = 'Blues', group.by = 'celltype', split.by = 'celltype') +
+  coord_flip() +
+  scale_color_distiller(direction = 0) +
+  RotatedAxis()
+```
+
+```{r generate list of mir9 predicted targets}
+library(readxl)
+
+# import predicted mir9 targets for miR9-3p and miR9-5p, combine targets to make list of all mir9 targets
+targets1 <- data.frame(read_xlsx('/data/hps/assoc/private/cherrylab/user/kcalli/miRNA_targets/TargetScan8.0__miR-9-5p.Mouse.predicted_targets.xlsx'))
+targets2 <- data.frame(read_xlsx('/data/hps/assoc/private/cherrylab/user/kcalli/miRNA_targets/TargetScan8.0__miR-9-3p.Mouse.predicted_targets.xlsx'))
+targets <- c(targets1$Target.gene, targets2$Target.gene)
+targets <- unique(targets)
+```
+
+
+```{r create volcano plots for all cell classes}
+library(stringr)
+library(EnhancedVolcano)
+library(dplyr)
+
+targets <- str_to_title(targets)
+
+celltypes <- unique(enh$celltype)
+# remove celltypes with few cells/DEGs
+celltypes <- celltypes[1:7]
+
+for (i in celltypes){
+  
+  clust <- as.character(i)
+  
+  #output of Seurat's differential expression, subset by KO
+  input = read.csv(paste0('de_presto_enhko_', clust, '_edgeRfilterbyExp.csv'))
+  input$feature <- str_to_title(input$feature)
+  
+  labels <- filter(input, input$padj < 0.05) %>%
+    filter(abs(logFC) > 0.1375) %>%
+    arrange(padj)
+
+  #Manipulate dataframes for downstream analysis
+  input$mir9_target = ifelse(input$feature%in% targets, 'yes', 'no')
+  input$mir9_up = ifelse(input$mir9_target == 'yes' & abs(input$logFC) >=0.137504, 'yes', 'no')
+  targs3 = c('C130071C03Rik') 
+  input$linc = ifelse(input$feature %in% targs3, 'yes', 'no')
+  # modified mir9_up so that it shows both upregulated and downregulated mir9 targets
+  # can change it back to upregulated only if you get rid of absolute value around log2FC
+  
+  #Set color and label parameters for volcano plot
+  keyvals = ifelse(input$mir9_up == 'yes', '#7D3C98',  ifelse(input$linc == 'yes', '#F4D03F', ifelse(input$padj > 0.05, 'gray29', ifelse(input$logFC <= 0.137504 & input$logFC >= -0.137504, '#21618C', '#B71C1C')))) 
+  names(keyvals)[keyvals == '#7D3C98'] <- 'Predicted miR-9-2 Target'
+  names(keyvals)[keyvals == '#B71C1C'] <- 'Sig. p-value & logFC'
+  names(keyvals)[keyvals == '#21618C'] <- 'Sig. p-value only'
+  names(keyvals)[keyvals == '#F4D03F'] <- 'miR9-2 host gene'
+  names(keyvals)[keyvals == 'gray29'] <- 'NS'
+  
+  #Define lists of genes to be labeled in plot
+  input$mir9_label = ifelse(input$mir9_target == 'yes' & abs(input$logFC) >=0.26303, 'yes', 'no')
+  mir9 = input[input$mir9_label == 'yes',]
+  targs2 = as.character(mir9$feature)[1:20]
+  targs3 = c('C130071C03Rik')
+  targs4 = labels$feature[1:20]
+  targs = c(targs2, targs3, targs4)
+
+#Generate labeled volcano plot, with genes of interest labeled, colored, and increased in size
+  volcano <- EnhancedVolcano(input,
+                             lab = as.character(input$feature),
+                              x = 'logFC',
+                              y = 'padj',
+                              xlab = bquote(~Log[2]~ 'fold change'),
+                              xlim = c((min(input$logFC)-0.1), (max(input$logFC)+0.1)),
+                              title = "",
+                              subtitle = "",
+                              selectLab = targs,
+                              FCcutoff = 0.137504,
+                              pCutoff = 0.05,
+                              colAlpha = 3/4,
+                              colCustom = keyvals,
+                              labSize = 4,
+                              pointSize = c(ifelse(input$endo == 'yes', 2, ifelse(input$mir9_up == 'yes', 2, 1))),
+                              drawConnectors = T,
+                              legendPosition = 'right',
+                              legendLabSize = 12,
+                              legendIconSize = 4.0,
+                              max.overlaps = Inf,
+                             arrowheads = FALSE
+                             )                
+
+
+ggsave(volcano, filename = paste0('enh_volcanoplot_', clust, '_edgeRfilterbyExp_2026-02.pdf'), width = 10)
+}
+```
+
+
+
+```{r}
+#output of Seurat's differential expression, subset by KO
+  input = read.csv('de_enh_presto_pseudobulk_filterbyexp.csv')
+  input$feature <- str_to_title(input$feature)
+  
+  labels <- filter(input, input$padj < 0.05) %>%
+    filter(abs(logFC) > 0.1375) %>%
+    arrange(padj)
+
+  #Manipulate dataframes for downstream analysis
+  input$mir9_target = ifelse(input$feature%in% targets, 'yes', 'no')
+  input$mir9_up = ifelse(input$mir9_target == 'yes' & abs(input$logFC) >=0.137504, 'yes', 'no')
+  targs3 = c('C130071C03Rik') 
+  input$linc = ifelse(input$feature %in% targs3, 'yes', 'no')
+  # modified mir9_up so that it shows both upregulated and downregulated mir9 targets
+  # can change it back to upregulated only if you get rid of absolute value around log2FC
+  
+  #Set color and label parameters for volcano plot
+  keyvals = ifelse(input$mir9_up == 'yes', '#7D3C98',  ifelse(input$linc == 'yes', '#F4D03F', ifelse(input$padj > 0.05, 'gray29', ifelse(input$logFC <= 0.137504 & input$logFC >= -0.137504, '#21618C', '#B71C1C')))) 
+  names(keyvals)[keyvals == '#7D3C98'] <- 'Predicted miR-9-2 Target'
+  names(keyvals)[keyvals == '#B71C1C'] <- 'Sig. p-value & logFC'
+  names(keyvals)[keyvals == '#21618C'] <- 'Sig. p-value only'
+  names(keyvals)[keyvals == '#F4D03F'] <- 'miR9-2 host gene'
+  names(keyvals)[keyvals == 'gray29'] <- 'NS'
+  
+  #Define lists of genes to be labeled in plot
+  input$mir9_label = ifelse(input$mir9_target == 'yes' & abs(input$logFC) >=0.26303, 'yes', 'no')
+  mir9 = input[input$mir9_label == 'yes',]
+  targs2 = as.character(mir9$feature)[1:20]
+  targs3 = c('C130071C03Rik')
+  targs4 = labels$feature[1:20]
+  targs = c(targs2, targs3, targs4)
+
+#Generate labeled volcano plot, with genes of interest labeled, colored, and increased in size
+  volcano <- EnhancedVolcano(input,
+                             lab = as.character(input$feature),
+                              x = 'logFC',
+                              y = 'padj',
+                              xlab = bquote(~Log[2]~ 'fold change'),
+                              xlim = c((min(input$logFC)-0.1), (max(input$logFC)+0.1)),
+                              title = "",
+                              subtitle = "",
+                              selectLab = targs,
+                              FCcutoff = 0.137504,
+                              pCutoff = 0.05,
+                              colAlpha = 3/4,
+                              colCustom = keyvals,
+                              labSize = 4,
+                              pointSize = c(ifelse(input$endo == 'yes', 2, ifelse(input$mir9_up == 'yes', 2, 1))),
+                              drawConnectors = T,
+                              legendPosition = 'right',
+                              legendLabSize = 12,
+                              legendIconSize = 4.0,
+                              max.overlaps = Inf,
+                             arrowheads = FALSE
+                             )                
+
+
+ggsave(volcano, filename = 'enh_volcanoplot_pseudobulk_edgeRfilterbyExp_2026-02.pdf', width = 10)
+```
+
+
+# Generate cell class proportions chart with uniform palette
+
+```{r load libraries}
+library(Seurat)
+library(plyr)
+library(dplyr)
+```
+
+
+```{r define uniform color palette used for all plots}
+palette3 <- c("Amacrine_Cells" = "#332288", "Developing_AC_HC" = "#117733", "Developing_Cones" = "#44AA99", "Developing_Rods" = "#CC6677" , "Early_Progenitors" = "#666633", "HC_AC_Precursors" = "#DDCC77", "HC_AC_RGC_Precursors" = "#33BBEE", "Late_Progenitors" = "#882255", "Neuroepithelial_Progenitors" = "lightgrey", "Neurogenic_Precursors" = "#AA4499", "Retinal_Ganglion_Cells" = "#EE7733", "Bipolar_Cells" = "#66CCEE", "Cones" = "#228833", "Horizontal_Cells" = "#CCBB44", "Muller_Glia" = "#EE6677", "Rods" = "#AA3377")
+```
+
+
+```{r generate stacked bar plots}
+# load in data
+enh <- readRDS('enh_mca.rds')
+
+enh$celltype <- plyr::mapvalues(
+  x = enh$celltype, 
+  from = c(unique(enh$celltype)), 
+  to = c('Cones', 'Amacrine_Cells', 'Bipolar_Cells', 'Muller_Glia', 'Rods', 'Retinal_Ganglion_Cells', 'Horizontal_Cells', unique(enh$celltype)[8:14])
+)
+
+enh <- subset(enh, subset = !(enh$celltype %in% c('Rgs16', 'Fibroblasts', 'Astrocytes', 'Pericytes', 'Vascular_endothelium', 'Microglia')))
+
+# create proportion table
+enh.proportions <- prop.table(table(enh$celltype, enh$orig.ident), 2)
+
+# reshape data into dataframe
+enh.comparison <- data.frame(enh.proportions)
+colnames(enh.comparison) <- c('Celltype', 'Sample', 'Proportion')
+enh.comparison$genotype <- plyr::mapvalues(enh.comparison$Sample,
+                                 from = c('eWT1', 'eWT2', 'eWT3', 'eKO1', 'eKO2', 'eKO3'),
+                                 to = c('WT', 'WT', 'WT', 'KO', 'KO', 'KO'))
+
+# plot data
+library(ggplot2)
+
+enh.comparison$genotype <- factor(enh.comparison$genotype, levels=rev(c('WT', 'KO')))
+enh.comparison$Sample <- factor(enh.comparison$Sample, levels=rev(c('eWT1', 'eWT2', 'eWT3', 'eKO1', 'eKO2', 'eKO3')))
+
+# by sample
+enh.comparison %>%
+  ggplot(aes(x=Sample, y=Proportion, fill=Celltype))+
+  geom_bar(position = 'stack', stat = 'identity') +
+  theme_classic() +
+  RotatedAxis() +
+  coord_flip() +
+  scale_fill_manual(values = palette3)
+
+ggsave(filename = 'enh_stackedbar_cellclassproportions_bysample-celltype_horizontal.pdf')
+
+#by genotype
+enh.comparison %>%
+  ggplot(aes(x=genotype, y=Proportion, fill=Celltype))+
+  geom_bar(position = 'stack', stat = 'identity') +
+  theme_classic() +
+  RotatedAxis() +
+  coord_flip() +
+  scale_fill_manual(values = palette3)
+
+ggsave(filename = 'enh_stackedbar_cellclassproportions_bygeno-celltype_horizontal.pdf')
+```
+
+```{r}
+write.csv(table(enh$celltype, enh$orig.ident), file = 'enh_cellcounts_celltypebysample.csv')
+
+write.csv(table(enh$orig.ident), file = 'enh_cellspersample.csv')
+```
+
+
+```{r Generate umap by genotype with uniform palette}
+# load in data
+enh <- readRDS('enh_mca.rds')
+
+enh$celltype <- plyr::mapvalues(
+  x = enh$celltype, 
+  from = c(unique(enh$celltype)), 
+  to = c('Cones', 'Amacrine_Cells', 'Bipolar_Cells', 'Muller_Glia', 'Rods', 'Retinal_Ganglion_Cells', 'Horizontal_Cells', unique(enh$celltype)[8:14])
+)
+
+enh <- subset(enh, subset = !(enh$celltype %in% c('Rgs16', 'Fibroblasts', 'Astrocytes', 'Pericytes', 'Vascular_endothelium', 'Microglia')))
+
+DimPlot(enh, reduction = 'umap', group.by = 'celltype', cols = palette3)
+ggsave(file = 'umap_bycelltype_palette3.pdf')
+
+enh$genotype <- factor(enh$genotype, levels = c('WT', 'KO'))
+
+DimPlot(enh, reduction = 'umap', group.by = 'celltype', split.by = 'genotype', cols = palette3)
+ggsave(filename = 'umap_bycelltype_splitbygeno_palette3.pdf', width = 14, height = 7)
+```
+
+
+
+
+
+
+
+
+
+

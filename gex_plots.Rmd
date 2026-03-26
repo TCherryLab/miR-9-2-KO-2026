@@ -1,0 +1,409 @@
+---
+title: "GEX_plots"
+author: "LuLu Callies"
+date: "2026-02-02"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r load in libraries}
+library(Seurat)
+library(dplyr)
+library(stringr)
+library(pheatmap)
+library(readxl)
+library(data.table)
+library(viridis)
+```
+
+# dittoseq to make heatmaps of marker genes
+
+```{r load libraries}
+library(Seurat)
+library(pheatmap)
+library(viridis)
+library(tidyr)
+library(dplyr)
+library(dittoSeq)
+library(scuttle)
+```
+
+
+```{r load and prep data}
+# read in data
+e16 <- readRDS(file = 'e16_E14-P2_refmapping.rds')
+p0 <- readRDS(file = 'p0_E14-P2_refmapping.rds')
+
+# subset objects for merge of developmental timepoints
+## e16
+DefaultAssay(e16) <- 'RNA'
+e16_sub <- DietSeurat(e16, layers = "counts", assays = "RNA")
+e16_sub@meta.data <- e16@meta.data[, (colnames(e16@meta.data)) %in% c("timepoint", "genotype", "predicted.id", "batch")]
+## p0
+DefaultAssay(p0) <- 'RNA'
+p0_sub <- DietSeurat(p0, layers = "counts", assays = "RNA")
+p0_sub@meta.data <- p0@meta.data[, (colnames(p0@meta.data)) %in% c("timepoint", "genotype", "predicted.id", "batch")]
+
+p0_sub$batch <- plyr::mapvalues(p0_sub$batch,
+                          from = c("batch1", "batch2"),
+                          to = c("batch3", "batch4"))
+
+
+# merge objects and normalize
+dev <- merge(e16_sub, y = p0_sub)
+dev <- JoinLayers(dev)
+dev <- split(dev, f=dev$batch)
+dev <- NormalizeData(dev)
+dev <- JoinLayers(dev)
+
+# order cell types
+dev$predicted.id <- factor(dev$predicted.id, levels = c('Early_Progenitors', 'Late_Progenitors', 'HC_AC_RGC_Precursors',   'Retinal_Ganglion_Cells', 'HC_AC_Precursors', 'Developing_AC_HC', 'Amacrine_Cells', 'Neurogenic_Precursors', 'Developing_Cones', 'Developing_Rods'))
+```
+
+```{r calculate average expression values for each celltype}
+#convert to single cell experiment
+sce <-as.SingleCellExperiment(dev, assay = 'RNA')
+sce <- logNormCounts(sce)
+
+## aggregate by cell type
+celltype_mean <- aggregateAcrossCells(as(sce, "SingleCellExperiment"),  
+                     ids = sce$predicted.id, 
+                     statistics = "mean",
+                     use.assay.type = "logcounts")
+```
+
+
+
+
+```{r define developmental cell class markers and plot expression}
+rpc <- c('Fgf15', 'Sfrp2', 'Mki67', 'Ccnd1') # progenitor
+ac <- c('Tfap2b', 'Gad2', 'Tfap2c', 'Tfap2a') # amacrine
+rgc <- c('Rbpms', 'Gap43', 'Elavl4', 'Isl1') # retinal ganglion cells
+hc <- c('Onecut1', 'Onecut2', 'Onecut3') # horizontal
+cones <- c('Prom1', 'Gnat2', 'Thrb', 'Neurod1', 'Prdm1') # cones
+rods <- c('Crx', 'Nr2e3', 'Nrl') # rods
+
+# plot heatmap of cell class markers
+pdf("dev_e16_p0_marker_heatmap.pdf", width = 8, height = 11)
+dittoHeatmap(celltype_mean,
+             assay = "logcounts",
+             genes = c(rpc, rgc, hc, ac, cones, rods),
+             cluster_rows = FALSE,
+             cluster_cols = FALSE,
+             scale = "none",
+             heatmap.colors = viridis(100),
+             annot.by = c("predicted.id"),
+            annot.colors = c("Early_Progenitors" = "#666633", "Late_Progenitors" = "#882255", "HC_AC_RGC_Precursors" = "#33BBEE", "Retinal_Ganglion_Cells" = "#EE7733", "HC_AC_Precursors" = "#DDCC77", "Developing_AC_HC" = "#117733", "Amacrine_Cells" = "#332288", "Neurogenic_Precursors" = "#AA4499",  "Developing_Cones" = "#44AA99", "Developing_Rods" = "#CC6677"))
+dev.off()
+```
+
+
+```{r load and prep data}
+# load data
+wk3 <- readRDS(file = '/data/hps/assoc/private/cherrylab/user/kcalli/3wk_analysis/wk3_refmapping.rds')
+
+# prep and normalize data
+DefaultAssay(wk3) <- 'RNA'
+wk3_sub <- DietSeurat(wk3, layers = "counts", assays = "RNA")
+wk3_sub@meta.data <- wk3@meta.data[, (colnames(wk3@meta.data) %in% c('timepoint', 'genotype', 'celltype', 'batch'))]
+
+wk3_sub <- split(wk3_sub, f=wk3_sub$batch)
+wk3_sub <- NormalizeData(wk3_sub)
+wk3_sub <- JoinLayers(wk3_sub)
+
+# order cell types
+wk3_sub$celltype <- factor(wk3_sub$celltype, levels = c('Retinal_ganglion_cells', 'Horizontal_cells', 'Amacrine_cells', 'Cones', 'Rods', 'Bipolar_cells', 'Muller_glia'))
+```
+
+
+```{r calculate average expression values for each celltype}
+# convert to single cell experiment
+sce <-as.SingleCellExperiment(wk3_sub, assay = 'RNA')
+sce <- logNormCounts(sce)
+
+## aggregate by cell type
+celltype_mean <- aggregateAcrossCells(as(sce, "SingleCellExperiment"),  
+                     ids = sce$celltype, 
+                     statistics = "mean",
+                     use.assay.type = "logcounts")
+```
+
+```{r create heatmap of markers for adult retinas}
+# define marker genes
+muller <- c('Slc1a3', 'Rlbp1', 'Sox2', 'Crym', 'Clu') # muller glia
+mrods<- c('Crx', 'Otx2', 'Nr2e3', 'Nrl', 'Rho', 'Gnat1') # mature rods
+mcones <- c('Gnat2', 'Opn1sw', 'Pde6h') # mature cones
+mrgc <- c('Rbpms', 'Gap43', 'Elavl4', 'Pou4f2', 'Pou4f1') # retinal ganglion cells
+mhc <- c('Onecut1', 'Onecut2', 'Onecut3') # horizontal cells
+mac <- c('Tfap2b', 'Gad2', 'Tfap2c', 'Tfap2a', 'Slc6a9', 'Slc32a1', 'Gad1', 'Lhx9') # amacrine cells
+bc <- c('Vsx1', 'Vsx2', 'Grm6', 'Lhx4', 'Trpm1') # bipolar cells
+
+# generate adult cell class marker heatmap
+pdf("wk3_marker_heatmap.pdf", width = 8, height = 11)
+dittoHeatmap(celltype_mean,
+             assay = "logcounts",
+             genes = c(mrgc, mhc, mac, mcones, mrods, bc, muller),
+             cluster_rows = FALSE,
+             cluster_cols = FALSE,
+             scale = "none",
+             heatmap.colors = viridis(100),
+             annot.by = c("celltype"),
+             annot.colors = c("Retinal_ganglion_cells" = '#EE7733', 'Horizontal_cells' = '#CCBB44', Amacrine_cells = '#332288', 'Cones' = '#228833', 'Rods' = '#AA3377', 'Bipolar_cells' = '#66CCEE', 'Muller_glia' = '#EE6677'))
+
+dev.off()
+```
+
+
+# create dotplots of miR9 expression in wildtype cells
+
+```{r generate dotplot of wt mir9 expression at e16}
+## subset e16 object to wildtype only
+e16_wt <- subset(e16, subset = genotype == 'WT')
+# subset out celltypes with very low numbers
+e16_wt <- subset(e16_wt, subset = predicted.id %in% c('Amacrine_Cells', 'Developing_Cones', 'Early_Progenitors', 'HC_AC_Precursors', 'HC_AC_RGC_Precursors', 'Late_Progenitors', 'Neurogenic_Precursors', 'Retinal_Ganglion_Cells', 'Developing_AC_HC'))
+
+# define genes
+genes <- c('Gm3764', 'C130071C03Rik', 'Mir9-3hg')
+
+# create plot
+DotPlot(
+  object= e16_wt,
+  assay = 'RNA',
+  features = genes,
+  cols = 'Blues',
+  col.min = NA,
+  col.max = NA,
+  dot.min = 0,
+  dot.scale = 6,
+  idents = NULL,
+  group.by = 'predicted.id',
+  split.by = NULL ,
+  cluster.idents = FALSE,
+  scale = TRUE,
+  scale.by = "radius",
+  scale.min = NA,
+  scale.max = NA)  +
+  RotatedAxis() +
+  scale_color_distiller(direction = 0) +
+  scale_y_discrete(limits=rev)
+
+# save plot
+ggsave(filename = 'e16_E14-P2-ref_dotplot_mir9genes_WTonly.pdf', height=4, width=5.5)
+```
+
+
+```{r generate dotplot of mir9 expression at p0}
+# subset to only WT
+p0_wt <- subset(p0, subset = genotype == 'WT')
+# subset out cell types with very low numbers
+p0_wt <- subset(p0_wt, subset = predicted.id %in% c('Amacrine_Cells', 'Developing_AC_HC', 'Developing_Cones', 'Developing_Rods', 'HC_AC_Precursors', 'Late_Progenitors', 'Neurogenic_Precursors', 'Retinal_Ganglion_Cells'))
+
+
+# define genes
+genes <- c('Gm3764', 'C130071C03Rik', 'Mir9-3hg')
+
+# create plot
+DotPlot(
+  object= p0_wt,
+  assay = 'RNA',
+  features = genes,
+  cols = 'Blues',
+  col.min = NA,
+  col.max = NA,
+  dot.min = 0,
+  dot.scale = 6,
+  idents = NULL,
+  group.by = 'predicted.id',
+  split.by = NULL,
+  cluster.idents = FALSE,
+  scale = TRUE,
+  scale.by = "radius",
+  scale.min = NA,
+  scale.max = NA)  +
+  RotatedAxis() +
+  scale_color_distiller(direction = 0) +
+  scale_y_discrete(limits=rev)
+
+# save plot
+ggsave(filename = '/data/hps/assoc/private/cherrylab/user/kcalli/P0_analysis/AllSamples/p0_E14-P2-ref_dotplot_mir9genes_bycelltype_WTonly.pdf', height = 4, width = 5.5)
+```
+
+
+```{r generate dotplot for wk3}
+# subset wk3 timepoint to wildtype cells only
+wk3_wt <- subset(wk3, subset = genotype == 'WT')
+# subset out celltypes with very low numbers
+wk3_wt <- subset(wk3_wt, subset = celltype %in% c('Amacrine_cells', 'Bipolar_cells', 'Cones', 'Horizontal_cells', 'Muller_glia', 'Retinal_ganglion_cells', 'Rods'))
+
+# define genes
+genes <- c('Gm3764', 'C130071C03Rik', 'Mir9-3hg')
+
+# create plot
+DotPlot(
+  object= wk3_wt,
+  assay = 'RNA',
+  features = genes,
+  cols = 'Blues',
+  col.min = NA,
+  col.max = NA,
+  dot.min = 0,
+  dot.scale = 6,
+  idents = NULL,
+  group.by = 'celltype',
+  split.by = NULL,
+  cluster.idents = FALSE,
+  scale = TRUE,
+  scale.by = "radius",
+  scale.min = NA,
+  scale.max = NA)  +
+  RotatedAxis() +
+  scale_color_distiller(direction = 0) +
+  scale_y_discrete(limits=rev)
+
+# save plot
+ggsave(filename = '/data/hps/assoc/private/cherrylab/user/kcalli/3wk_analysis/wk3_dotplot_mir9genes_WTonly.pdf', height = 4, width = 5.5)
+```
+
+
+# Create heatmaps of mir9 host genes for WT vs KO
+Plotting mir9 expression by timepoint, celltype, and genotype
+
+```{r Calculate mir9hg expression}
+# read in data
+e16 <- readRDS(file = 'e16_E14-P2_refmapping.rds')
+p0 <- readRDS(file = 'p0_E14-P2_refmapping.rds')
+wk3 <- readRDS(file = 'wk3_refmapping.rds')
+
+
+# make list of timepoints and genes
+timepoints <- c('e16', 'p0', 'wk3')
+genes <- c('Gm3764', 'C130071C03Rik', 'Mir9-3hg')
+
+# change column names for ease of loop
+e16$celltype <- e16$predicted.id
+p0$celltype <- p0$predicted.id
+
+
+# calculate average expression value for every celltype, split by timepoint and genotype
+for (gene in genes){
+  # generate dataframe for mir9 expression
+  df <- data.frame(celltype_genotype=character(),
+                   timepoint=character(),
+                   mir9exp=double()
+                   )
+  for (time in timepoints){
+    obj <- get(time)
+  
+    # Normalize expression
+    DefaultAssay(obj) <- 'RNA'
+    obj[['RNA']] <- split(obj[['RNA']], f = obj$batch)
+    obj <- NormalizeData(obj)
+    obj <- JoinLayers(obj)
+    
+    gex <- AverageExpression(obj, group.by = c('celltype', 'genotype'), features = gene)
+  
+    types <- length(gex$RNA)
+  
+    for (i in 1:types){
+      cell <- colnames(gex$RNA)[i]
+      timepoint <- time
+      mir9hg <- gex$RNA[i]
+    
+      df[nrow(df)+1, ] <- c(cell, timepoint, mir9hg)
+  }
+  }
+  write.csv(df, file = paste0('mir9hg_', gene, '_expression_bycell-time-geno.csv')) 
+}
+```
+
+
+
+```{r function to save heatmap}
+save_pheatmap_pdf <- function(x, filename, width=4, height=7) {
+   stopifnot(!missing(x))
+   stopifnot(!missing(filename))
+   pdf(filename, width=width, height=height)
+   grid::grid.newpage()
+   grid::grid.draw(x$gtable)
+   dev.off()
+}
+```
+
+```{r generate heatmaps for each gene and timepoint}
+# load library
+library(pheatmap)
+library(viridis)
+library(tidyr)
+
+genes <- c('Gm3764', 'C130071C03Rik', 'Mir9-3hg')
+
+for (gene in genes){
+  # load in data table
+  data <- read.csv(file = paste0('mir9hg_', gene, '_expression_bycell-time-geno.csv'))
+  
+  data <- separate(data = data,
+                   col = celltype_genotype,
+                   into = c('celltype', 'genotype'),
+                   sep = '_')
+}
+
+# change cell type names to be uniform across all timepoints (fix capitalization)
+data$celltype <- plyr::mapvalues(
+    x = data$celltype,
+    from = c('Amacrine-cells','Bipolar-cells', 'Muller-glia', 'Horizontal-cells', 'Retinal-ganglion-cells'),
+    to = c('Amacrine-Cells', 'Bipolar-Cells', 'Muller-Glia', 'Horizontal-Cells', 'Retinal-Ganglion-Cells')
+)
+
+# find cell types with very low numbers
+sub_data <- subset(data, subset = !(celltype %in% c('Neuroepithelial-Progenitors', 'Microglia', 'Astrocytes', 'Pericytes', 'Rgs16', 'Vascular-endothelium', 'Fibroblasts')))
+  
+# set major celltypes with low numbers to NA
+rows <- which(sub_data$timepoint == 'e16' & sub_data$celltype %in% c('Developing-Rods', 'Developing_AC_HC'))
+rows <- rows %>%
+append(which(sub_data$timepoint == 'p0' & sub_data$celltype %in% c('Early-Progenitors')))
+sub_data[rows, 'mir9exp'] <- NA
+  
+# generate list of timepoints
+timepoints <- c('e16', 'p0', 'wk3')
+  
+# create lists to order heatmap axis
+e16_order <- c('Early-Progenitors', 'Late-Progenitors', 'HC-AC-RGC-Precursors', 'Retinal-Ganglion-Cells', 'HC-AC-Precursors', 'Developing-AC-HC', 'Amacrine-Cells', 'Neurogenic-Precursors', 'Developing-Cones', 'Developing-Rods')
+p0_order <- c('Early-Progenitors', 'Late-Progenitors', 'HC-AC-RGC-Precursors', 'Retinal-Ganglion-Cells', 'HC-AC-Precursors', 'Developing-AC-HC', 'Amacrine-Cells', 'Neurogenic-Precursors', 'Developing-Cones', 'Developing-Rods')
+wk3_order <- c('Retinal-Ganglion-Cells', 'Horizontal-Cells', 'Amacrine-Cells', 'Cones', 'Rods', 'Bipolar-Cells', 'Muller-Glia')
+
+# generate standardized scale for host gene heatmaps
+breaks = seq(0,20,0.2)
+  
+for (time in timepoints){
+    # prepare data
+    ## select only relevant columns
+    input <- sub_data[sub_data$timepoint == time, c('celltype', 'genotype', 'mir9exp')]
+    
+    ## sort table by celltype ordered by cell class birth
+    ordered <- get(paste0(time, '_order'))
+    input$celltype <- factor(input$celltype, levels = ordered)
+    input <- sort_by(input, input$celltype, decreasing = FALSE)
+    
+    ## reshape data to proper input format
+    input <- reshape(input, idvar = 'celltype', timevar = 'genotype', direction = 'wide')
+    rownames(input) <- input$celltype
+    input <- input[, c('mir9exp.WT', 'mir9exp.KO')]
+    colnames(input) <- c('WT', 'KO')
+    
+    # heatmap of developmental timepoints
+    savehp <- pheatmap(mat = input,
+    color = viridis(100),
+    breaks = breaks, # generating uniform color scale
+    show_colnames = TRUE,
+    show_rownames = TRUE,
+    cluster_rows = FALSE,
+    cluster_cols = FALSE,
+    border_color = NA
+    )
+    
+    save_pheatmap_pdf(savehp, paste0('mir9_', gene, '_heatmap_', time, '.pdf'))
+}
+```

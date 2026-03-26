@@ -1,0 +1,329 @@
+---
+title: "clark_blackshaw_reanalysis"
+output: html_document
+date: "2024-06-13"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This reference was created from developmental dataset from Clark et al. 2019 (https://doi.org/10.1016/j.neuron.2019.04.010). 
+Filtered feature matrices were downloaded for each individual timepoint, merged, and object processed in same manner as datasets generated for this paper.
+Celltypes were manually reannotated based on analysis.
+Final r object produced here was used a reference object for Seurat reference mapping for celltypes in E16 and P0 miR-9-2 KO datasets
+
+```{r load libraries}
+library(Seurat)
+library(SeuratData)
+library(sctransform)
+library(patchwork)
+library(dplyr)
+library(ggplot2)
+library(harmony)
+```
+
+```{r Adjust the maximum size of global objects}
+# (this may need to be increased later)
+options(future.globals.maxSize = 200 * 1024^3)
+```
+
+```{r Read the 10x files}
+E11.data <- Read10X(data.dir = "/Clark_Blackshaw_reanalysis/Alignments/count_E11_Clark/outs/filtered_feature_bc_matrix/")
+E12.data <- Read10X(data.dir = "/Clark_Blackshaw_reanalysis/Alignments/count_E12_Clark/outs/filtered_feature_bc_matrix/")
+E14.1.data <- Read10X(data.dir = "/Clark_Blackshaw_reanalysis/Alignments/count_E14_rep1_Clark/outs/filtered_feature_bc_matrix/")
+E14.2.data <- Read10X(data.dir = "/Clark_Blackshaw_reanalysis/Alignments/count_E14_rep2_Clark/outs/filtered_feature_bc_matrix/")
+E16.data <- Read10X(data.dir = "/Clark_Blackshaw_reanalysis/Alignments/count_E16_Clark/outs/filtered_feature_bc_matrix/")
+E18.2.data <- Read10X(data.dir = "/Clark_Blackshaw_reanalysis/Alignments/count_E18_rep2_Clark/outs/filtered_feature_bc_matrix/")
+E18.3.data <- Read10X(data.dir = "/Clark_Blackshaw_reanalysis/Alignments/count_E18_rep3_Clark/outs/filtered_feature_bc_matrix/")
+P0.data <- Read10X(data.dir = "/Clark_Blackshaw_reanalysis/Alignments/count_P0_Clark/outs/filtered_feature_bc_matrix/")
+P2.2.data <- Read10X(data.dir = "/Clark_Blackshaw_reanalysis/Alignments/count_P2_rep2_Clark/outs/filtered_feature_bc_matrix/") # only using one rep of P2 data because it looks like identical datasets were uploaded
+P5.data <- Read10X(data.dir = "/Clark_Blackshaw_reanalysis/Alignments/count_P5_Clark/outs/filtered_feature_bc_matrix/")
+P8.1.data <- Read10X(data.dir = "/Clark_Blackshaw_reanalysis/Alignments/count_P8_rep1_Clark/outs/filtered_feature_bc_matrix/") # only using one of two P8 replicates -- they look identical
+P14.data <- Read10X(data.dir = "/Clark_Blackshaw_reanalysis/Alignments/count_P14_Clark/outs/filtered_feature_bc_matrix/")
+```
+
+```{r Create Seurat objects}
+E11 <- CreateSeuratObject(counts = E11.data, project = "E11", min.cells = 3, min.features = 200)
+E12 <- CreateSeuratObject(counts = E12.data, project = "E12", min.cells = 3, min.features = 200)
+E14.1 <- CreateSeuratObject(counts = E14.1.data, project = "E14.1", min.cells = 3, min.features = 200)
+E14.2 <- CreateSeuratObject(counts = E14.2.data, project = "E14.2", min.cells = 3, min.features = 200)
+E16 <- CreateSeuratObject(counts =  E16.data, project = "E16", min.cells = 3, min.features = 200)
+E18.2 <- CreateSeuratObject(counts = E18.2.data, project = "E18.2", min.cells = 3, min.features = 200)
+E18.3 <- CreateSeuratObject(counts =  E18.3.data, project = "E18.3", min.cells = 3, min.features = 200)
+P0 <- CreateSeuratObject(counts = P0.data, project = "P0", min.cells = 3, min.features = 200)
+P2.2 <- CreateSeuratObject(counts = P2.2.data, project = "P2.2", min.cells = 3, min.features = 200)
+P5 <- CreateSeuratObject(counts = P5.data, project = "P5", min.cells = 3, min.features = 200)
+P8.1 <- CreateSeuratObject(counts = P8.1.data, project = "P8.1", min.cells = 3, min.features = 200) # only use one of the P8 replicates -- they look identical
+P14 <- CreateSeuratObject(counts = P14.data, project = "P14", min.cells = 3, min.features = 200)
+```
+
+```{r Add mitochondrial counts}
+E11[["percent.mt"]] <- PercentageFeatureSet(E11, pattern = "^mt-")
+E12[["percent.mt"]] <- PercentageFeatureSet(E12, pattern = "^mt-")
+E14.1[["percent.mt"]] <- PercentageFeatureSet(E14.1, pattern = "^mt-")
+E14.2[["percent.mt"]] <- PercentageFeatureSet(E14.2, pattern = "^mt-")
+E16[["percent.mt"]] <- PercentageFeatureSet(E16, pattern = "^mt-")
+E18.2[["percent.mt"]] <- PercentageFeatureSet(E18.2, pattern = "^mt-")
+E18.3[["percent.mt"]] <- PercentageFeatureSet(E18.3, pattern = "^mt-")
+P0[["percent.mt"]] <- PercentageFeatureSet(P0, pattern = "^mt-")
+P2.2[["percent.mt"]] <- PercentageFeatureSet(P2.2, pattern = "^mt-")
+P5[["percent.mt"]] <- PercentageFeatureSet(P5, pattern = "^mt-")
+P8.1[["percent.mt"]] <- PercentageFeatureSet(P8.1, pattern = "^mt-")
+P14[["percent.mt"]] <- PercentageFeatureSet(P14, pattern = "^mt-")
+```
+
+```{r Create violin plots for QC}
+VlnPlot(E11, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, pt.size=0, log = TRUE)
+ggsave(file= "E11_qc.pdf")
+
+VlnPlot(E12, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, pt.size=0, log = TRUE)
+ggsave(file= "E12_qc.pdf")
+
+VlnPlot(E14.1, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, pt.size=0, log = TRUE)
+ggsave(file= "E14.1_qc.pdf")
+
+VlnPlot(E14.2, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, pt.size=0, log = TRUE)
+ggsave(file= "E14.2_qc.pdf")
+
+VlnPlot(E16, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, pt.size=0, log = TRUE)
+ggsave(file= "E16_qc.pdf")
+
+VlnPlot(E18.2, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, pt.size=0, log = TRUE)
+ggsave(file= "E18.2_qc.pdf")
+
+VlnPlot(E18.3, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, pt.size=0, log = TRUE)
+ggsave(file= "E18.3_qc.pdf")
+
+VlnPlot(P0, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, pt.size=0, log = TRUE)
+ggsave(file= "P0_qc.pdf")
+
+VlnPlot(P2.2, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, pt.size=0, log = TRUE)
+ggsave(file= "P2_qc.pdf")
+
+VlnPlot(P5, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, pt.size=0, log = TRUE)
+ggsave(file= "P5_qc.pdf")
+
+VlnPlot(P8.1, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, pt.size=0, log = TRUE)
+ggsave(file= "P8.1_qc.pdf")
+
+VlnPlot(P8.2, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, pt.size=0, log = TRUE)
+ggsave(file= "P8.2_qc.pdf")
+
+VlnPlot(P14, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, pt.size=0, log = TRUE)
+ggsave(file= "P14_qc.pdf")
+```
+
+
+```{r Subset the data based on QC metric cutoffs}
+# clark, blackshaw data is single cell not single nucleus so using a 10% mitochondrial dna cutoff
+E11 <- subset(E11, subset = nCount_RNA > 300 & nCount_RNA < 30000 & percent.mt < 10)
+E12 <- subset(E12, subset = nCount_RNA > 300 & nCount_RNA < 30000 & percent.mt < 10)
+E14.1 <- subset(E14.1, subset = nCount_RNA > 300 & nCount_RNA < 30000 & percent.mt < 10)
+E14.2 <- subset(E14.2, subset = nCount_RNA > 300 & nCount_RNA < 30000 & percent.mt < 10)
+E16 <- subset(E16, subset = nCount_RNA > 300 & nCount_RNA < 30000 & percent.mt < 10)
+E18.2 <- subset(E18.2, subset = nCount_RNA > 300 & nCount_RNA < 30000 & percent.mt < 10)
+E18.3 <- subset(E18.3, subset = nCount_RNA > 300 & nCount_RNA < 30000 & percent.mt < 10)
+P0 <- subset(P0, subset = nCount_RNA > 300 & nCount_RNA < 30000 & percent.mt < 10)
+P2.2 <- subset(P2.2, subset = nCount_RNA > 300 & nCount_RNA < 30000 & percent.mt < 10)
+P5 <- subset(P5, subset = nCount_RNA > 300 & nCount_RNA < 30000 & percent.mt < 10)
+P8.1 <- subset(P8.1, subset = nCount_RNA > 300 & nCount_RNA < 30000 & percent.mt < 10)
+P14 <- subset(P14, subset = nCount_RNA > 300 & nCount_RNA < 30000 & percent.mt < 10)
+
+samples <- c("E11", "E12", "E14.1", "E14.2", "E16", "E18.2", "E18.3", "P0", "P2.2", "P5", "P8.1", "P14")
+
+for (sample in samples){
+  obj <- get(sample)
+  saveRDS(obj, file = paste0(sample, "_unprocessed.rds"))
+}
+```
+
+```{r merge timepoint replicates}
+E14 = merge(E14.1, y = E14.2, add.cell.ids = c("E14.1", "E14.2"))
+E18 = merge(E18.2, y = E18.3 , add.cell.ids = c("E18.2", "E18.3"))
+
+samples <- c("E14", "E18")
+
+for (sample in samples){
+  obj <- get(sample)
+
+  saveRDS(obj, file = paste0(sample, "_unprocessed.rds"))
+}
+```
+
+# Create reference for all retinal timepoints
+
+```{r reload in unprocessed objects}
+library(here)
+
+file_paths <- list.files(path = here::here("rds_unprocessed"), pattern = ".rds", full.names = TRUE)
+file_names <- gsub(pattern = "_unprocessed.rds", replacement = "", x = basename(file_paths))
+
+for(i in 1:length(file_names)){
+  assign( file_names[i],readRDS(file_paths[i]))
+}
+```
+
+```{r merge timepoint replicates}
+ret = merge(E11, y = c(E12, E14.1, E14.2, E16, E18.2, E18.3, P0, P2.2, P5, P8.1, P14),
+      add.cell.ids = c("E11", "E12", "E14.1", "E14.2", "E16", "E18.2", "E18.3", "P0", "P2.2", "P5", "P8.1", "P14"))
+```
+
+```{r add object metadata}
+# add column for sample
+ret$sample <- plyr::mapvalues(
+  x = ret$orig.ident, 
+  from = c("E11", "E12", "E14.1", "E14.2", "E16", "E18.2", "E18.3", "P0", "P2", "P5", "P8.1", "P14"), 
+  to = c("E11", "E12", "E14.1", "E14.2", "E16", "E18.2", "E18.3", "P0", "P2.2", "P5", "P8.1", "P14")
+)
+
+# add column for timepoint
+ret$timepoint <- plyr::mapvalues(
+  x = ret$orig.ident, 
+  from = c("E11", "E12", "E14.1", "E14.2", "E16", "E18.2", "E18.3", "P0", "P2", "P5", "P8.1", "P14"), 
+  to = c("E11", "E12", "E14", "E14", "E16", "E18", "E18", "P0", "P2", "P5", "P8", "P14")
+)
+
+ret <- JoinLayers(ret)
+
+saveRDS(ret, file = "complete_dev_ref_unprocessed.rds")
+```
+
+```{r Run normalization}
+ret <- readRDS(file = "complete_dev_ref_unprocessed.rds")
+
+library(glmGamPoi)
+
+# SCT normalization
+ret <- SCTransform(ret, vars.to.regress="percent.mt", conserve.memory = TRUE)
+
+# save object
+saveRDS(ret, "complete_dev_ref_normalized.rds")
+```
+
+
+```{r Process object}
+# load object
+ret <- readRDS("complete_dev_ref_normalized.rds")
+
+# process
+ret <- RunPCA(ret)
+ret <- RunUMAP(ret, dims = 1:30, return.model=TRUE) ## adding return.model to use as reference for FindTransferAnchorts
+ret <- FindNeighbors(ret, reduction = "pca", dims = 1:30)
+ret <- FindClusters(ret, resolution = 0.4)
+
+saveRDS(ret, file = "complete_dev_ref_processed.rds")
+```
+
+```{r Generate PCA and UMAP plots}
+# PCA plots
+DimPlot(ret, reduction = "pca")
+ggsave(file= "complete_dev_ref_pca.pdf")
+
+DimPlot(ret, reduction = "pca", split.by = "timepoint", ncol = 4)
+ggsave(file= "complete_dev_ref_pca_bytimepoint.pdf")
+
+ElbowPlot(ret, ndims=30)
+ggsave(file= "complete_dev_ref_elbow.pdf")
+
+# UMAPs
+DimPlot(ret, group.by = "timepoint")
+ggsave(file= "complete_dev_ref_umap_groupbytimepoint.pdf")
+
+DimPlot(ret, split.by = "timepoint")
+ggsave(file= "complete_dev_ref_umap_splitbytimepoint.pdf", width = 25)
+
+DimPlot(ret, group.by = "sample", split.by = "timepoint")
+ggsave(file= "complete_dev_ref_umap_groupbysample-splitbytimepoint.pdf", width = 25)
+
+DimPlot(ret, group.by = "seurat_clusters")
+ggsave(file= "complete_dev_ref_umap_byclusters.pdf")
+
+DimPlot(ret, group.by = "seurat_clusters", split.by = "timepoint")
+ggsave(file= "complete_dev_ref_umap_groupbyclusters_splitbytimepoint.pdf")
+```
+
+# Cluster Identification
+```{r plot cell class marker expression}
+# load library
+library(stringr)
+
+# list of genes taken from published EThomas 2019 code
+# modified genes that don"t have the same name in mouse as in human
+rods = c("PROM1", "CRX", "RCVRN", "OTX2", "RHO", "NR2E3", "NRL")
+mg = c("SLC1A3", "SLN", "RLBP1", "C130071C03Rik", "SOX2", "NFIA", "CRYM", "CLU")
+cones = c("ARR3", "PROM1", "CRX", "GNAT2", "OPN1SW", "PDE6H")
+hc = c("ONECUT1", "ONECUT2", "ONECUT3", "TFAP2B", "LHX1")
+bc = c("VSX1", "VSX2", "OTX2", "GRM6", "PRKCA", "LHX4", "PROX1", "PCP2", "PCP4", "TRPM1")
+ac = c("SLC6A9", "GAD1", "SLC32A1", "TFAP2B", "GAD2", "SLC18A3", "LHX9", "TFAP2A", "TFAP2C")
+rgc = c("POU4F2", "RBPMS", "NEFM", "GAP43", "POU4F1", "ELAVL4")
+rpe = c("BEST1", "RPE65", "TIMP3", "TRPM1")
+prog = c("VIM", "SOX2", "SFRP2", "MKI67", "UBE2C", "FGF15", "CCND1", "ID3", "PAX6", "VSX2", "LHX2", "HES1", "HES5")
+prog2 = c("CCND1", "OLIG2", "NEUROG2")
+prbcpre = c("VXN", "RXRG", "ATOH7", "PRDM1", "GADD45G", "DCT", "LHX4", "OTX2")
+early = c("FGF15", "SFRP2", "BASP1", "KPNA2", "KIF2A", "GADD45A", "SOX11", "ELAVL3", "GAL" )
+late = c("CRYM", "CAR2", "NFIA", "NFIB", "NFIX", "OAZ1", "PEPB1", "CD9", "SAT1", "GADD45G", "RGS16", "PRDM1", "ASCL1")
+t1 = c("ATOH7", "HES6", "DLL3")
+t2 = c("PRDM13", "HSPB1")
+t3 = c("DLL3", "OTX2", "FABP7")
+prog_pre = c("GADD45A", "NEUROG2", "OLIG2")
+neuro_ep = c("MITF", "CCND2", "MSX1", "H19")
+astro = c("NGFR", "GFAP", "SOX2", "SLC1A3")
+microglia = c("C1QA", "TYROBP", "CD74", "P2RY12", "TMEM119", "CD45", "CD11B")
+endo = c("GJA4", "BCAM", "ESAM")
+
+celltypes = c("rods", "mg", "cones", "hc", "bc", "ac", "rgc", "rpe", "prog", "prbcpre", "prog2", "early", "late", "t1", "t2", "t3", "prog_pre", "neuro_ep", "astro", "microglia", "endo")
+
+for (type in celltypes){
+  obj <- get(type)
+  genes = str_to_title(obj)
+
+  DotPlot(ret, features = genes, group.by = "seurat_clusters") + RotatedAxis()
+  ggsave(file = paste0("ret_dotplot_", type, ".pdf"))
+}
+```
+
+```{r find cluster markers}
+# Re-normalize data
+DefaultAssay(ret) = "RNA"
+ret = NormalizeData(ret)
+
+markers <- FindAllMarkers(ret, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
+write.csv(markers, file= "complete_dev_ref_clustermarkers.csv")
+```
+
+```{r assign celltypes based on cell class markers}
+ret$celltype <-  plyr::mapvalues(ret$seurat_clusters,
+                                 from = c(as.character(0:25)),
+                                 to = c("Early_Progenitors", "Late_Progenitors", "Developing_Rods", "Late_Progenitors", "Early_Progenitors", "HC_AC_RGC_Precursors", "Developing_Rods", "Developing_Cones", "Retinal_Ganglion_Cells", "HC_AC_Precursors", "Amacrine_Cells", "Rods", "Neurogenic_Precursors", "Early_Progenitors", "Neurogenic_Precursors", "Developing_Muller_Glia", "Developing_Bipolar_Cells", "Developing_AC_HC", "Muller_Glia", "Bipolar_Cells", "Neuroepithelial_Progenitors", "Cones", "Neuroepithelial_Progenitors", "Neuroepithelial_Progenitors", "Amacrine_Cells", "Microglia"))
+
+# create umaps of annotated celltypes
+DimPlot(ret, group.by = "celltype")
+ggsave(file= "complete_dev_ref_annotated_umap_bycelltype.pdf")
+
+DimPlot(ret, group.by = "celltype", split.by = "timepoint")
+ggsave(file= "complete_dev_ref_annotated_umap_bycelltype-splitbytimepoint.pdf", width = 20)
+
+# save object
+saveRDS(ret, file = "complete_dev_ref_annotated.rds")
+```
+
+
+
+# Dot Plot of miR9 host gene expression
+```{r mir9 expression across time}
+# load in object
+ret <- readRDS(file = "complete_dev_ref_annotated.rds")
+
+# normalize data
+DefaultAssay(ret) = "RNA"
+ret <- NormalizeData(ret)
+
+# order by timepoint
+ret$timepoint <- factor(ret$timepoint, levels = c("E11", "E12", "E14", "E16", "E18", "P0", "P2", "P5", "P8", "P14"))
+
+# plot mir9-hg expression
+DotPlot(ret, features = c("Mir9-3hg", "C130071C03Rik", "Gm3764"), group.by = "timepoint", cols = "Blues") + coord_flip() + RotatedAxis() + scale_color_distiller(direction = 0)
+ggsave(file = "ret_dotplot_mir9expression_acrosstime.pdf", height = 3.5, width = 8)
+
+```

@@ -1,0 +1,153 @@
+---
+title: "CHEA3"
+author: "LuLu Callies"
+date: "2025-12-10"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Setup
+
+```{r setup}
+# load libraries
+library(rChEA3)
+library(dplyr)
+library(stringr)
+library(Seurat)
+library(readxl)
+library(ggplot2)
+```
+
+```{r load in objects}
+# load in object
+e16 <- readRDS(file = 'e16_E14-P2_refmapping.rds')
+p0 <- readRDS(file = 'p0_E14-P2_refmapping.rds')
+wk3 <- readRDS(file = 'wk3_refmapping.rds')
+```
+
+# rCHEA3 analysis
+"Transcription Factor Target Over-representation Analysis - The goal of ChEA3 is to predict transcription factors (TFs) associated with user-input sets of genes. Discrete query gene sets are compared to ChEA3 libraries of TF target gene sets assembled from multiple orthogonal 'omics' datasets. The Fisher's Exact Test, with a background size of 20,000, is used to compare the input gene set to the TF target gene sets in order to determine which TFs may be most closely associated with the input gene set."
+It can take human and mouse genes as input, but it assumes that orthologous genes for mouse are named the same as human.
+"Integrated results, which take into account results from all libraries, are sorted in ascending order by score. Lower scores indicate more relevancy to the transcription factor."
+
+## E16
+
+```{r e16 -- chea3}
+celltypes <- unique(unique(e16@meta.data$predicted.id))
+# remove same celltypes that were filtered during presto analysis
+celltypes <- celltypes[-11]
+celltypes <- celltypes[-8]
+celltypes <- celltypes[-9]
+
+for (cell in celltypes){
+  ## 1. Read in data by celltype -----------------------------------------------------------
+  df <- read.csv(paste0('de_presto_e16_E14-P2_ref_', cell,'_edgeRfilterbyExp.csv'))
+  
+  my_genes <- df %>% filter(padj < 0.05)
+  gene_list <- str_to_upper(my_genes$feature)
+  
+  ## 2. Run CHEA3 ---------------
+  results <- queryChEA3(gene_list)
+  
+  ## 3. Examine results and save --------------
+  exportResults(results,
+                output_file = paste0('chea3_e16_', cell))
+  
+  ## 4. Visualize results --------
+  meanRank <- results[["Integrated--meanRank"]]
+  topRank <- results[["Integrated--topRank"]]
+  
+  rankings <- c('meanRank', 'topRank')
+  
+  for (type in rankings){
+    dat <- get(type)
+    viz <- visualizeRank(dat, top_n = 30, fill_color = "#808080", query_name = NULL, title_plot = paste0("Transcription Factor Enrichment -- ", cell))
+    saveViz(viz, output_dir, output_file = paste0("e16_top30chea3plot_", type, '_', cell), format = "pdf", width = 8, height = 5, resolution = 300,
+          verbose = TRUE)
+  }
+  
+  print(paste0(cell, " complete"))
+}
+```
+
+## P0
+```{r p0 -- chea3}
+celltypes <- unique(unique(p0@meta.data$predicted.id))
+# remove same celltypes that were filtered during presto analysis
+celltypes <- celltypes[1:10]
+celltypes <- celltypes[-7]
+
+for (cell in celltypes){
+  ## 1. Read in data by celltype -----------------------------------------------------------
+  df <- read.csv(paste0('de_presto_p0_E14-P2_ref_', cell,'_edgeRfilterbyExp.csv'))
+  
+  my_genes <- df %>% filter(padj < 0.05)
+  gene_list <- str_to_upper(my_genes$feature)
+  
+  ## 2. Run CHEA3 ---------------
+  results <- queryChEA3(gene_list)
+  
+  ## 3. Examine results and save --------------
+  exportResults(results,
+                output_file = paste0('chea3_p0_', cell))
+  
+ ## 4. Visualize results --------
+  meanRank <- results[["Integrated--meanRank"]]
+  topRank <- results[["Integrated--topRank"]]
+  
+  rankings <- c('meanRank', 'topRank')
+  
+  for (type in rankings){
+    dat <- get(type)
+    viz <- visualizeRank(dat, top_n = 30, fill_color = "#808080", query_name = NULL, title_plot = paste0("Transcription Factor Enrichment -- ", cell))
+    saveViz(viz, output_dir, output_file = paste0("p0_top30chea3plot_", type, '_', cell), format = "pdf", width = 8, height = 5, resolution = 300,
+          verbose = TRUE)
+  }
+  
+  print(paste0(cell, " complete"))
+}
+```
+
+## wk3
+```{r wk3 -- chea3}
+celltypes <- unique(wk3$celltype)
+celltypes <- celltypes[1:7]
+
+for (cell in celltypes){
+  ## 1. Read in data by celltype -----------------------------------------------------------
+  df <- read.csv(paste0('de_presto_wk3_', cell, '_edgeRfilterbyExp.csv'))
+  
+  my_genes <- df %>% filter(padj < 0.05)
+  gene_list <- str_to_upper(my_genes$feature)
+  
+  ## 2. Run CHEA3 ---------------
+  results <- queryChEA3(gene_list)
+  
+  ## 3. Examine results and save --------------
+  exportResults(results,
+                output_dir = output_dir,
+                output_file = paste0('chea3_wk3_', cell),
+                with_date = TRUE)
+  
+  ## 4. Visualize results --------
+  meanRank <- results[["Integrated--meanRank"]]
+  topRank <- results[["Integrated--topRank"]]
+  
+  rankings <- c('meanRank', 'topRank')
+  
+  for (type in rankings){
+    dat <- get(type)
+    viz <- visualizeRank(dat, top_n = 30, fill_color = "#808080", query_name = NULL, title_plot = paste0("Transcription Factor Enrichment -- ", cell))
+    saveViz(viz, output_dir, output_file = paste0("wk3_top30chea3plot_", type, '_', cell), format = "pdf", with_date = TRUE, width = 8, height = 5, resolution = 300,
+          verbose = TRUE)
+  }
+  
+  print(paste0(cell, " complete"))
+}
+```
+
+
+

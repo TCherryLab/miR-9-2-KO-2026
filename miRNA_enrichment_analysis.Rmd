@@ -1,0 +1,400 @@
+---
+title: "miRNA_enrichment_mir9KO"
+author: "LuLu Callies"
+date: "2025-02-03"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Setup
+
+```{r load libraries}
+library(edgeR)
+library(readxl)
+library(dplyr)
+library(stringr)
+```
+
+```{r generate list of mir9 predicted targets}
+# import predicted mir9 targets for miR9-3p and miR9-5p, combine targets to make list of all mir9 targets
+targets1 <- data.frame(read_xlsx('TargetScan8.0__miR-9-5p.Mouse.predicted_targets.xlsx'))
+targets2 <- data.frame(read_xlsx('TargetScan8.0__miR-9-3p.Mouse.predicted_targets.xlsx'))
+targets <- c(targets1$Target.gene, targets2$Target.gene)
+targets <- unique(targets)
+targets <- str_to_title(targets)
+```
+
+# mir9 hypergeometric testing - are DEGs enriched for predicted miR9 targets?
+
+## E16
+
+```{r Test if ALL DEGs are enriched for mir9 targets}
+# designate celltypes for DEGs filtered to only those that are significant
+celltypes <- c('Amacrine_Cells', 'Developing_Cones', 'HC_AC_Precursors', 'HC_AC_RGC_Precursors', 'Early_Progenitors', 'Retinal_Ganglion_Cells', 'Neurogenic_Precursors', 'Late_Progenitors')
+
+# create empty dataframe for tested celltypes
+df <- data.frame(celltype=character(),
+                 sigPredicted=integer(),
+                 sigNotPredicted=integer(),
+                 nsPredicted=integer(),
+                 nsNotPredicted=integer(),
+                 pval=double(),
+                 CI_low=character(),
+                 CI_high=double(),
+                 OddsRatio=double())
+
+# loop through all cell classes to test for mir9 enrichment in all DEGs
+for (cell in celltypes){
+  
+  # read in list of differentially expressed genes by celltype
+  test <- read.csv(paste0('de_presto_e16_E14-P2_ref_', cell, '_edgeRfilterbyExp.csv'))
+  test <- data.frame(test)
+  test$padj <- as.numeric(test$padj)
+  test$logFC <- as.numeric(test$logFC)
+  test$feature <-str_to_title(test$feature)
+  # how many DEGs are significant? (p < 0.05)
+  a <- length(which(test$padj < 0.05))
+  # how many DEGs are not significant?
+  b <- nrow(test) - a
+  # how many of the significant DEGs are predicted mir9 targets from TargetScan?
+  mir9 <- filter(test, test$padj < 0.05)
+  x <- length(which(mir9$feature %in% targets))
+  # how many of the non-significant DEGs are predicted mir9 targets from TargetScan?
+  mir9 <- filter(test, !(test$padj < 0.05))
+  y <- length(which(mir9$feature %in% targets))
+  
+  # create matrix and test if significantly DEG are enriched for mir9 targets
+  ContMatrix<-rbind(c(x, a-x),c(y,b-y))
+  
+  # run test
+  test_values <- fisher.test(ContMatrix,alternative="greater")
+  
+  df[nrow(df)+1, ] <- c(cell, x, a-x, y, b-y, test_values$p.value, test_values$conf.int[1], test_values$conf.int[2], test_values$estimate)
+}
+
+write.csv(df, file = 'e16_mir9_enrichment_allDEGs_hypergeometric_filterbyExp.csv')
+```
+
+
+```{r Test if upregulated DEGs are enriched for mir9 targets}
+# designate celltypes for DEGs filtered to only those that are significant
+celltypes <- c('Amacrine_Cells', 'Developing_Cones', 'HC_AC_Precursors', 'HC_AC_RGC_Precursors', 'Early_Progenitors', 'Retinal_Ganglion_Cells', 'Neurogenic_Precursors', 'Late_Progenitors')
+
+# create empty dataframe for tested celltypes
+df <- data.frame(celltype=character(),
+                 sigPredicted=integer(),
+                 sigNotPredicted=integer(),
+                 nsPredicted=integer(),
+                 nsNotPredicted=integer(),
+                 pval=double(),
+                 CI_low=character(),
+                 CI_high=double(),
+                 OddsRatio=double())
+
+
+# loop through all cell classes to test for mir9 enrichment in all DEGs
+for (cell in celltypes){
+  
+  # read in list of differentially expressed genes by celltype
+  test <- read.csv(paste0('/data/hps/assoc/private/cherrylab/user/kcalli/E16_analysis/allsamples/DGE/de_presto_e16_E14-P2_ref_', cell, '_edgeRfilterbyExp.csv'))
+  test <- data.frame(test)
+  test$padj <- as.numeric(test$padj)
+  test$logFC <- as.numeric(test$logFC)
+  test$feature <-str_to_title(test$feature)
+ 
+   # how many significant DEGs? 
+  a <- nrow(test)
+  # how many significant DEGs are upregulated?
+  b <- length(which(test$logFC > 0))
+  # how many significant DEGs are downregulated
+  d <- length(which(test$logFC < 0))
+  # how many of the significantly upregulate DEGs are predicted mir9 targets from TargetScan?
+  mir9 <- filter(test, test$logFC > 0)
+  x <- length(which(mir9$feature %in% targets))
+  # how many of the significantly downregulated DEGs are predicted mir9 targets from TargetScan?
+  mir9 <- filter(test, test$logFC < 0)
+  y <- length(which(mir9$feature %in% targets))
+
+  # create matrix and test if upregulated genes are enriched for mir9 targets
+  ContMatrix <- rbind(c(x, b-x), c(y, d-y))
+  
+  # run test
+  test_values <- fisher.test(ContMatrix,alternative="greater")
+  
+  df[nrow(df)+1, ] <- c(cell, x, a-x, y, b-y, test_values$p.value, test_values$conf.int[1], test_values$conf.int[2], test_values$estimate)
+}
+
+write.csv(df, file = '/data/hps/assoc/private/cherrylab/user/kcalli/E16_analysis/allsamples/e16_mir9_enrichment_upDEGs_hypergeometric_filterbyExp.csv')
+```
+
+## P0
+
+```{r Test if ALL DEGs are enriched for mir9 targets}
+# designate celltypes for DEGs filtered to only those that are significant
+celltypes <- c('Amacrine_Cells', 'Developing_Cones', 'Developing_Rods', 'HC_AC_Precursors', 'Developing_AC_HC', 'Retinal_Ganglion_Cells', 'Neurogenic_Precursors', 'Late_Progenitors')
+
+# create empty dataframe for tested celltypes
+df <- data.frame(celltype=character(),
+                 sigPredicted=integer(),
+                 sigNotPredicted=integer(),
+                 nsPredicted=integer(),
+                 nsNotPredicted=integer(),
+                 pval=double(),
+                 CI_low=character(),
+                 CI_high=double(),
+                 OddsRatio=double())
+
+# loop through all cell classes to test for mir9 enrichment in all DEGs
+for (cell in celltypes){
+  
+  # read in list of differentially expressed genes by celltype
+  test <- read.csv(paste0('de_presto_p0_E14-P2_ref_', cell, '_edgeRfilterbyExp.csv'))
+  test <- data.frame(test)
+  test$padj <- as.numeric(test$padj)
+  test$logFC <- as.numeric(test$logFC)
+  test$feature <-str_to_title(test$feature)
+  # how many DEGs are significant? (p < 0.05)
+  a <- length(which(test$padj < 0.05))
+  # how many DEGs are not significant?
+  b <- nrow(test) - a
+  # how many of the significant DEGs are predicted mir9 targets from TargetScan?
+  mir9 <- filter(test, test$padj < 0.05)
+  x <- length(which(mir9$feature %in% targets))
+  # how many of the non-significant DEGs are predicted mir9 targets from TargetScan?
+  mir9 <- filter(test, !(test$padj < 0.05))
+  y <- length(which(mir9$feature %in% targets))
+  
+  # create matrix and test if significantly DEG are enriched for mir9 targets
+  ContMatrix<-rbind(c(x, a-x),c(y,b-y))
+  
+  # run test
+  test_values <- fisher.test(ContMatrix,alternative="greater")
+  
+  df[nrow(df)+1, ] <- c(cell, x, a-x, y, b-y, test_values$p.value, test_values$conf.int[1], test_values$conf.int[2], test_values$estimate)
+}
+
+write.csv(df, file = 'p0_mir9_enrichment_allDEGs_hypergeometric_filterbyExp.csv')
+```
+
+
+
+```{r Test if upregulated DEGs are enriched for mir9 targets}
+# designate celltypes for DEGs filtered to only those that are significant
+celltypes <- c('Amacrine_Cells', 'Developing_Cones', 'Developing_Rods', 'HC_AC_Precursors', 'Developing_AC_HC', 'Retinal_Ganglion_Cells', 'Neurogenic_Precursors', 'Late_Progenitors')
+
+# create empty dataframe for tested celltypes
+df <- data.frame(celltype=character(),
+                 sigPredicted=integer(),
+                 sigNotPredicted=integer(),
+                 nsPredicted=integer(),
+                 nsNotPredicted=integer(),
+                 pval=double(),
+                 CI_low=character(),
+                 CI_high=double(),
+                 OddsRatio=double())
+
+
+# loop through all cell classes to test for mir9 enrichment in all DEGs
+for (cell in celltypes){
+  
+  # read in list of differentially expressed genes by celltype
+  test <- read.csv(paste0('de_presto_p0_E14-P2_ref_', cell, '_edgeRfilterbyExp.csv'))
+  test <- data.frame(test)
+  test$padj <- as.numeric(test$padj)
+  test$logFC <- as.numeric(test$logFC)
+  test$feature <-str_to_title(test$feature)
+ 
+   # how many significant DEGs? 
+  a <- nrow(test)
+  # how many significant DEGs are upregulated?
+  b <- length(which(test$logFC > 0))
+  # how many significant DEGs are downregulated
+  d <- length(which(test$logFC < 0))
+  # how many of the significantly upregulate DEGs are predicted mir9 targets from TargetScan?
+  mir9 <- filter(test, test$logFC > 0)
+  x <- length(which(mir9$feature %in% targets))
+  # how many of the significantly downregulated DEGs are predicted mir9 targets from TargetScan?
+  mir9 <- filter(test, test$logFC < 0)
+  y <- length(which(mir9$feature %in% targets))
+
+  # create matrix and test if upregulated genes are enriched for mir9 targets
+  ContMatrix <- rbind(c(x, b-x), c(y, d-y))
+  
+  # run test
+  test_values <- fisher.test(ContMatrix,alternative="greater")
+  
+  df[nrow(df)+1, ] <- c(cell, x, a-x, y, b-y, test_values$p.value, test_values$conf.int[1], test_values$conf.int[2], test_values$estimate)
+}
+
+write.csv(df, file = 'p0_mir9_enrichment_upDEGs_hypergeometric_filterbyExp.csv')
+```
+
+
+## 3 week
+
+```{r Test if ALL DEGs are enriched for mir9 targets}
+# designate celltypes for DEGs filtered to only those that are significant
+celltypes <- c('Amacrine_cells', 'Cones', 'Rods', 'Horizontal_cells', 'Muller_glia', 'Retinal_ganglion_cells', 'Bipolar_cells')
+
+# create empty dataframe for tested celltypes
+df <- data.frame(celltype=character(),
+                 sigPredicted=integer(),
+                 sigNotPredicted=integer(),
+                 nsPredicted=integer(),
+                 nsNotPredicted=integer(),
+                 pval=double(),
+                 CI_low=character(),
+                 CI_high=double(),
+                 OddsRatio=double())
+
+# loop through all cell classes to test for mir9 enrichment in all DEGs
+for (cell in celltypes){
+  
+  # read in list of differentially expressed genes by celltype
+  test <- read.csv(paste0('de_presto_wk3_', cell, '_edgeRfilterbyExp.csv'))
+  test <- data.frame(test)
+  test$padj <- as.numeric(test$padj)
+  test$logFC <- as.numeric(test$logFC)
+  test$feature <-str_to_title(test$feature)
+  # how many DEGs are significant? (p < 0.05)
+  a <- length(which(test$padj < 0.05))
+  # how many DEGs are not significant?
+  b <- nrow(test) - a
+  # how many of the significant DEGs are predicted mir9 targets from TargetScan?
+  mir9 <- filter(test, test$padj < 0.05)
+  x <- length(which(mir9$feature %in% targets))
+  # how many of the non-significant DEGs are predicted mir9 targets from TargetScan?
+  mir9 <- filter(test, !(test$padj < 0.05))
+  y <- length(which(mir9$feature %in% targets))
+  
+  # create matrix and test if significantly DEG are enriched for mir9 targets
+  ContMatrix<-rbind(c(x, a-x),c(y,b-y))
+  
+  # run test
+  test_values <- fisher.test(ContMatrix,alternative="greater")
+  
+  df[nrow(df)+1, ] <- c(cell, x, a-x, y, b-y, test_values$p.value, test_values$conf.int[1], test_values$conf.int[2], test_values$estimate)
+}
+
+write.csv(df, file = 'wk3_mir9_enrichment_allDEGs_hypergeometric_filterbyExp.csv')
+```
+
+
+
+```{r Test if upregulated DEGs are enriched for mir9 targets}
+# designate celltypes for DEGs filtered to only those that are significant
+celltypes <- c('Amacrine_cells', 'Cones', 'Rods', 'Horizontal_cells', 'Muller_glia', 'Retinal_ganglion_cells', 'Bipolar_cells')
+
+# create empty dataframe for tested celltypes
+df <- data.frame(celltype=character(),
+                 sigPredicted=integer(),
+                 sigNotPredicted=integer(),
+                 nsPredicted=integer(),
+                 nsNotPredicted=integer(),
+                 pval=double(),
+                 CI_low=character(),
+                 CI_high=double(),
+                 OddsRatio=double())
+
+
+# loop through all cell classes to test for mir9 enrichment in all DEGs
+for (cell in celltypes){
+  
+  # read in list of differentially expressed genes by celltype
+  test <- read.csv(paste0('de_presto_wk3_', cell, '_edgeRfilterbyExp.csv'))
+  test <- data.frame(test)
+  test$padj <- as.numeric(test$padj)
+  test$logFC <- as.numeric(test$logFC)
+  test$feature <-str_to_title(test$feature)
+ 
+   # how many significant DEGs? 
+  a <- nrow(test)
+  # how many significant DEGs are upregulated?
+  b <- length(which(test$logFC > 0))
+  # how many significant DEGs are downregulated
+  d <- length(which(test$logFC < 0))
+  # how many of the significantly upregulate DEGs are predicted mir9 targets from TargetScan?
+  mir9 <- filter(test, test$logFC > 0)
+  x <- length(which(mir9$feature %in% targets))
+  # how many of the significantly downregulated DEGs are predicted mir9 targets from TargetScan?
+  mir9 <- filter(test, test$logFC < 0)
+  y <- length(which(mir9$feature %in% targets))
+
+  # create matrix and test if upregulated genes are enriched for mir9 targets
+  ContMatrix <- rbind(c(x, b-x), c(y, d-y))
+  
+  # run test
+  test_values <- fisher.test(ContMatrix,alternative="greater")
+  
+  df[nrow(df)+1, ] <- c(cell, x, a-x, y, b-y, test_values$p.value, test_values$conf.int[1], test_values$conf.int[2], test_values$estimate)
+}
+
+write.csv(df, file = 'wk3_mir9_enrichment_upDEGs_hypergeometric_filterbyExp.csv')
+```
+
+
+# mir204 enrichment testing - are downregulated genes enriched for predicted mir204 targets in wk3 Muller glia?
+
+```{r generate list of mir204 predicted targets}
+# import predicted mir9 targets for miR9-3p and miR9-5p, combine targets to make list of all mir9 targets
+targets1 <- read_xlsx('TargetScan8.0__miR-204-3p_7684-5p.Mouse.predicted_targets.xlsx')
+targets2 <- read_xlsx('TargetScan8.0__miR-204-5p_211-5p.Mouse.predicted_targets.xlsx')
+
+targets <- c(targets1$`Ortholog of target gene`, targets2$`Ortholog of target gene`)
+targets <- unique(targets)
+targets <- str_to_title(targets)
+```
+
+
+```{r Test if downregulated DEGs are enriched for mir204 targets}
+# designate celltypes for DEGs filtered to only those that are significant
+celltypes <- c('Amacrine_cells', 'Cones', 'Rods', 'Horizontal_cells', 'Muller_glia', 'Retinal_ganglion_cells', 'Bipolar_cells')
+
+# create empty dataframe for tested celltypes
+df <- data.frame(celltype=character(),
+                 sigPredicted=integer(),
+                 sigNotPredicted=integer(),
+                 nsPredicted=integer(),
+                 nsNotPredicted=integer(),
+                 pval=double(),
+                 CI_low=character(),
+                 CI_high=double(),
+                 OddsRatio=double())
+
+
+# loop through all cell classes to test for mir9 enrichment in all DEGs
+for (cell in celltypes){
+  
+  # read in list of differentially expressed genes by celltype
+  test <- read.csv(paste0('de_presto_wk3_', cell, '_edgeRfilterbyExp.csv'))
+  test <- data.frame(test)
+  test$padj <- as.numeric(test$padj)
+  test$logFC <- as.numeric(test$logFC)
+  test$feature <-str_to_title(test$feature)
+ 
+  
+  # how many significant DEGs? 
+  a <- nrow(test)
+  # how many significant DEGs are upregulated?
+  b <- length(which(test$logFC > 0))
+  # how many significant DEGs are downregulated?
+  d <- length(which(test$logFC < 0))
+  # how many of the significantly upregulated DEGs are predicted mir204 targets from TargetScan?
+  mir <- filter(test, test$logFC > 0)
+  x <- length(which(mir$feature %in% targets))
+  # how many of the significantly downregulated DEGs are predicted mir204 targets from TargetScan?
+  mir <- filter(test, test$logFC < 0)
+  y <- length(which(mir$feature %in% targets))
+  
+  # create matrix and test if upregulated genes are enriched for mir204 targets
+  ContMatrix <- rbind(c(y, d-y), c(x, b-x))
+  test_values <- fisher.test(ContMatrix,alternative="greater")
+  
+  df[nrow(df)+1, ] <- c(cell, x, a-x, y, b-y, test_values$p.value, test_values$conf.int[1], test_values$conf.int[2], test_values$estimate)
+}
+
+write.csv(df, file = 'wk3_mir204_enrichment_upDEGs_hypergeometric_filterbyExp.csv')
+```

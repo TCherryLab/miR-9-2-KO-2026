@@ -1,0 +1,584 @@
+---
+title: "p0retina_seurat5"
+author: "LuLu Callies"
+output: html_document
+date: "2024-09-18"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Setup
+
+```{r load libraries}
+library(Seurat)
+library(SeuratData)
+library(sctransform)
+library(patchwork)
+library(dplyr)
+library(ggplot2)
+library(harmony)
+library(readxl)
+library(presto)
+```
+
+```{r Adjust the maximum size of global objects}
+# (this may need to be increased later)
+options(future.globals.maxSize = 200 * 1024^3)
+```
+
+# Load in data
+
+```{r Read the 10x files}
+#wildtype
+WTP0F1.data <- Read10X_h5(filename = 'WTP0F1_output_filtered_seurat.h5')
+WTP0F2.data <- Read10X_h5(filename = 'WTP0F2_output_filtered_seurat.h5')
+WTP0M1.data <- Read10X_h5(filename = 'WTP0M1_output_filtered_seurat.h5')
+WTP0M2.data <- Read10X_h5(filename = 'WTP0M2_output_filtered_seurat.h5')
+#knockout
+KOP0F1.data <- Read10X_h5(filename = 'KOP0F1_output_filtered_seurat.h5')
+KOP0F2.data <- Read10X_h5(filename = 'KOP0F2_output_filtered_seurat.h5')
+KOP0M1.data <- Read10X_h5(filename = 'KOP0M1_output_filtered_seurat.h5')
+KOP0M2.data <- Read10X_h5(filename = 'KOP0M2_output_filtered_seurat.h5')
+```
+
+# Create Seurat objects
+```{r Create Seurat objects}
+#wildtype
+WTP0F1 <- CreateSeuratObject(counts = WTP0F1.data, project = "WTP0F1", min.cells = 3, min.features = 200)
+WTP0F2 <- CreateSeuratObject(counts = WTP0F2.data, project = "WTP0F2", min.cells = 3, min.features = 200)
+WTP0M1 <- CreateSeuratObject(counts = WTP0M1.data, project = "WTP0M1", min.cells = 3, min.features = 200)
+WTP0M2 <- CreateSeuratObject(counts = WTP0M2.data, project = "WTP0M2", min.cells = 3, min.features = 200)
+#knockout
+KOP0F1 <- CreateSeuratObject(counts =  KOP0F1.data, project = "KOP0F1", min.cells = 3, min.features = 200)
+KOP0F2 <- CreateSeuratObject(counts = KOP0F2.data, project = "KOP0F2", min.cells = 3, min.features = 200)
+KOP0M1 <- CreateSeuratObject(counts =  KOP0M1.data, project = "KOP0M1", min.cells = 3, min.features = 200)
+KOP0M2 <- CreateSeuratObject(counts = KOP0M2.data, project = "KOP0M2", min.cells = 3, min.features = 200)
+```
+
+```{r add mitochondrial percentages}
+#wildtype
+WTP0F1[["percent.mt"]] <- PercentageFeatureSet(WTP0F1, pattern = "^mt-")
+WTP0F2[["percent.mt"]] <- PercentageFeatureSet(WTP0F2, pattern = "^mt-")
+WTP0M1[["percent.mt"]] <- PercentageFeatureSet(WTP0M1, pattern = "^mt-")
+WTP0M2[["percent.mt"]] <- PercentageFeatureSet(WTP0M2, pattern = "^mt-")
+#knockout
+KOP0F1[["percent.mt"]] <- PercentageFeatureSet(KOP0F1, pattern = "^mt-")
+KOP0F2[["percent.mt"]] <- PercentageFeatureSet(KOP0F2, pattern = "^mt-")
+KOP0M1[["percent.mt"]] <- PercentageFeatureSet(KOP0M1, pattern = "^mt-")
+KOP0M2[["percent.mt"]] <- PercentageFeatureSet(KOP0M2, pattern = "^mt-")
+```
+
+```{r Visualize QC metrics}
+# (will split by 'orig.ident')
+
+samples <- c('WTP0M1', 'WTP0M2', 'WTP0F1', 'WTP0F2', 'KOP0M1', 'KOP0M2', 'KOP0F1', 'KOP0F2')
+
+for (sample in samples){
+  obj <- get(sample)
+  
+  VlnPlot(obj, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, pt.size=0, log = TRUE)
+  ggsave(file = paste0(sample, "_qc.pdf"))
+}
+```
+
+```{r Subset the data based on QC metric cutoffs}
+#wildtype
+WTP0F1 <- subset(WTP0F1, subset = nCount_RNA > 1000 & nCount_RNA < 15000 & percent.mt < 5)
+WTP0F2 <- subset(WTP0F2, subset = nCount_RNA > 1000 & nCount_RNA < 15000 & percent.mt < 5)
+WTP0M1 <- subset(WTP0M1, subset = nCount_RNA > 1000 & nCount_RNA < 15000 & percent.mt < 5)
+WTP0M2 <- subset(WTP0M2, subset = nCount_RNA > 1000 & nCount_RNA < 15000 & percent.mt < 5)
+#knockout
+KOP0F1 <- subset(KOP0F1, subset = nCount_RNA > 1000 & nCount_RNA < 15000 & percent.mt < 5)
+KOP0F2 <- subset(KOP0F2, subset = nCount_RNA > 1000 & nCount_RNA < 15000 & percent.mt < 5)
+KOP0M1 <- subset(KOP0M1, subset = nCount_RNA > 1000 & nCount_RNA < 15000 & percent.mt < 5)
+KOP0M2 <- subset(KOP0M2, subset = nCount_RNA > 1000 & nCount_RNA < 15000 & percent.mt < 5)
+```
+
+```{r Merge into single Seurat object}
+p0=merge(WTP0F1, y = c(WTP0F2, WTP0M1, WTP0M2, KOP0F1, KOP0F2, KOP0M1, KOP0M2), 
+          add.cell.ids = c('WTP0F1', 'WTP0F2', 'WTP0M1', 'WTP0M2', 'KOP0F1', 'KOP0F2', 'KOP0M1', 'KOP0M2'))
+```
+
+```{r Add sample and condition information to metadata}
+# add column for batch
+p0$batch <- plyr::mapvalues(
+  x = p0$orig.ident,
+  from = c('WTP0F1', 'WTP0F2', 'WTP0M1', 'WTP0M2', 'KOP0F1', 'KOP0F2', 'KOP0M1', 'KOP0M2'),
+  to = c('batch1', 'batch1', 'batch2', 'batch2', 'batch1', 'batch1', 'batch2', 'batch2')
+)
+
+# add column for sample
+p0$sample <- plyr::mapvalues(
+  x = p0$orig.ident, 
+  from = c('WTP0F1', 'WTP0F2', 'WTP0M1', 'WTP0M2', 'KOP0F1', 'KOP0F2', 'KOP0M1', 'KOP0M2'), 
+  to = c('WTP0F1', 'WTP0F2', 'WTP0M1', 'WTP0M2', 'KOP0F1', 'KOP0F2', 'KOP0M1', 'KOP0M2')
+)
+
+# order sample ids by genotype and sex
+Idents(p0) = 'sample'
+Idents(p0) <- factor(Idents(p0), levels = c('WTP0F1', 'WTP0F2', 'WTP0M1', 'WTP0M2', 'KOP0F1', 'KOP0F2', 'KOP0M1', 'KOP0M2'))
+
+# add column for timepoint
+p0$timepoint <- plyr::mapvalues(
+  x = p0$orig.ident, 
+  from = c('WTP0F1', 'WTP0F2', 'WTP0M1', 'WTP0M2', 'KOP0F1', 'KOP0F2', 'KOP0M1', 'KOP0M2'), 
+  to = c('P0','P0','P0','P0', 'P0', 'P0', 'P0', 'P0')
+)
+
+# add column for genotype
+p0$genotype <- plyr::mapvalues(
+  x = p0$orig.ident, 
+  from = c('WTP0F1', 'WTP0F2', 'WTP0M1', 'WTP0M2', 'KOP0F1', 'KOP0F2', 'KOP0M1', 'KOP0M2'), 
+  to = c('WT', 'WT', 'WT','WT', 'KO', 'KO', 'KO', 'KO')
+)
+
+# order genotype
+Idents(p0) = 'genotype'
+Idents(p0) <- factor(Idents(p0), levels = c('WT', 'KO'))
+
+# add column for sex
+p0$sex <- plyr::mapvalues(
+  x = p0$orig.ident,
+  from = c('WTP0F1', 'WTP0F2', 'WTP0M1', 'WTP0M2', 'KOP0F1', 'KOP0F2', 'KOP0M1', 'KOP0M2'),
+  to = c('female', 'female', 'male', 'male', 'female', 'female', 'male', 'male')
+)
+```
+
+```{r Visualize QC metrics}
+# order samples by genotype and sex
+p0$sample <- factor(p0$sample, levels = c('WTP0M1', 'WTP0M2', 'WTP0F1', 'WTP0F2', 'KOP0M1', 'KOP0M2', 'KOP0F1', 'KOP0F2'))
+
+VlnPlot(p0, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, pt.size=0, log = TRUE, group.by = 'sample')
+ggsave(file= 'p0_qc.pdf')
+```
+
+
+
+```{r Save merged Seurat objects}
+saveRDS(p0, file = "p0.rds")
+```
+
+# Initial Analysis
+
+```{r load in data}
+p0 <- readRDS("p0.rds")
+```
+
+
+```{r Run SCTransform and PCA}
+# split sample by batch for normalization
+p0 <- JoinLayers(p0)
+p0[['RNA']] <- split(p0[['RNA']], f = p0$batch)
+
+# run normalization and PCA
+p0 <- SCTransform(p0, vars.to.regress = "percent.mt", verbose = FALSE)
+p0 <- RunPCA(p0)
+```
+
+## Without Harmony
+
+```{r Visualize samples in PCA space}
+DimPlot(p0, reduction = 'pca')
+ggsave(file= 'p0_pca.pdf')
+
+DimPlot(p0, reduction = 'pca', split.by = 'sample', ncol = 4)
+ggsave(file= 'p0_pca_bysample.pdf')
+
+DimPlot(p0, reduction = 'pca', split.by = 'batch', ncol = 4)
+ggsave(file= 'p0_pca_bybatch.pdf')
+
+DimPlot(p0, reduction = 'pca', split.by = 'sex', ncol = 4)
+ggsave(file= 'p0_pca_bysex.pdf')
+
+ElbowPlot(p0, ndims=30)
+ggsave(file= 'p0_elbow.pdf')
+```
+
+```{r Generate/visualize UMAP}
+p0 <- RunUMAP(p0, dims = 1:30)
+
+DimPlot(p0, group.by = 'sample')
+ggsave(file= 'p0_umap_bysample.pdf')
+
+DimPlot(p0, group.by = 'genotype')
+ggsave(file= 'p0_umap_bygenotype.pdf')
+
+DimPlot(p0, group.by = 'genotype', split.by = 'genotype')
+ggsave(file= 'p0_umap_splitbygenotype.pdf')
+
+DimPlot(p0, group.by = 'genotype', split.by = 'batch')
+ggsave(file= 'p0_umap_bygenotype-batch.pdf')
+
+DimPlot(p0, group.by = 'sex', split.by = 'sex')
+ggsave(file= 'p0_umap_splitbysex.pdf')
+```
+
+
+## With Harmony
+
+```{r Run harmony for comparison}
+# PCA Analysis with harmony integration
+p0_harmony <- RunHarmony(p0, group.by.vars = 'sample', assay.use = 'SCT') %>% 
+  RunUMAP(dims = 1:50, reduction = 'harmony', reduction.name = 'umap.harmony')
+
+saveRDS(p0_harmony, file = "p0_harmony.rds")
+```
+
+```{r Visualize UMAP}
+DimPlot(p0_harmony, reduction = 'umap.harmony', group.by = 'genotype')
+ggsave(file= 'p0_harmony_umap_bygenotype.pdf')
+
+DimPlot(p0_harmony, reduction = 'umap.harmony', group.by = 'genotype', split.by = 'genotype')
+ggsave(file= 'p0_harmony_umap_splitbygenotype.pdf')
+
+DimPlot(p0_harmony, reduction = 'umap.harmony', split.by = 'batch')
+ggsave(file= 'p0_harmony_umap_splitbybatch.pdf')
+```
+
+## Finish workflow
+
+Proceeding with harmony. Samples cluster separately without batch correction.
+
+```{r Finish standard Seurat workflow}
+#(FindNeighbors, FindClusters)
+p0_harmony <- FindNeighbors(p0_harmony, reduction = 'harmony', dims = 1:30, verbose=FALSE)
+p0_harmony <- FindClusters(p0_harmony, resolution = 0.4) 
+
+DimPlot(p0_harmony, reduction='umap.harmony', label=TRUE)+NoLegend()
+ggsave(file= 'p0_umap_harmonybycluster.pdf')
+
+DimPlot(p0_harmony, reduction='umap.harmony', label=FALSE, split.by = 'genotype')
+ggsave(file= 'p0_umap_harmonybycluster_splitbygenotype.pdf')
+
+DimPlot(p0_harmony, reduction='umap.harmony', label=FALSE, split.by = 'sex')
+ggsave(file= 'p0_umap_harmonybycluster_splitbysex.pdf')
+
+DimPlot(p0_harmony, reduction='umap.harmony', label=FALSE, split.by = 'batch')
+ggsave(file= 'p0_umap_harmonybycluster_splitbybatch.pdf')
+```
+
+For Seurat v5, make sure to rejoin layers once integration is complete. Rejoin before any differential expression analysis
+
+```{r Save object}
+# Join layers post-integration
+DefaultAssay(p0_harmony) = 'RNA'
+p0_harmony <- JoinLayers(p0_harmony)
+
+# save object
+saveRDS(p0_harmony, file = "p0_clusters.rds")
+```
+
+# Cluster ID
+
+```{r reload object}
+#reload
+p0 <- readRDS('p0_clusters.rds')
+```
+
+```{r Re-normalize}
+#Set default assay to RNA, then re-normalize (SCT assay is good for data visualization but not quantitative comparisons, according to Satija lab)
+DefaultAssay(p0) = 'RNA'
+
+# Normalize based on batch and then rejoin layers
+p0[['RNA']] <- split(p0[['RNA']], f = p0$batch)
+p0 = NormalizeData(p0)
+p0 <- JoinLayers(p0)
+```
+
+```{r look at QC by cluster}
+VlnPlot(p0, features = c('nFeature_RNA', 'nCount_RNA', 'percent.mt'), pt.size=0)+NoLegend()
+ggsave(file= 'p0_cluster_qc.pdf', width=20, height=10)
+```
+
+## Find clustermarkers and check cluster expression
+
+```{r find cluster markers}
+markers <- FindAllMarkers(p0, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
+write.csv(markers, file= 'p0_clustermarkers.csv')
+```
+
+
+```{r Look at cell class marker expression across clusters}
+DefaultAssay(p0) = 'RNA'
+
+genes <- c('C130071C03Rik', 'Rho', 'Sag', 'Gnat1', 'Nr2e3', 'Nrl', 'Gnat2', 'Rorb', 'Lhx1', 'Onecut3', 'Vsx2', 'Slc1a3', 'Tfa2b', 'Gad1', 'Gad2', 'Meis2', 'Rbpms', 'Sox9', 'Rlbp1', 'Otx2', 'Crx', 'Mki67', 'Atoh7')
+
+for (gene in genes){
+  FeaturePlot(p0, reduction = 'umap.harmony', features = gene, split.by = 'genotype')
+  ggsave(paste0('p0_harmony_global_', gene, '_featureplot.pdf', width=15))
+}
+```
+
+
+
+# Map reference labels onto dataset
+```{r load in data}
+p0 <- readRDS(file = 'p0_clusters.rds')
+DefaultAssay(p0) = 'SCT'
+
+# load in references
+ret_ref <- readRDS('complete_dev_ref_annotated.rds')
+DefaultAssay(ret_ref) = 'SCT'
+```
+
+
+```{r subset reference and map to seurat object}
+# create subset of reference corresponding to timepoints harvested
+ret_sub <- subset(ret_ref, subset = timepoint %in% c('E14', 'E16', 'E18', 'P0', 'P2'))
+ret_sub <- RunUMAP(ret_sub, reduction = 'pca', dims = 1:30, return.model = TRUE)
+
+DimPlot(ret_sub, reduction = 'umap', group.by = 'timepoint')
+ggsave(file = 'dev.E14.P2-ref_umap_bytimepoint.tif')
+
+DimPlot(ret_sub, reduction = 'umap', group.by = 'celltype')
+ggsave(file = 'dev.E14.P2-ref_umap_bycelltype.tif')
+
+# compute anchors between reference and dataset
+anchors <- FindTransferAnchors(
+  reference = ret_sub,
+  query = p0,
+  normalization.method = "SCT",
+  reference.reduction = "pca",
+  dims = 1:50
+)
+
+# map labels onto dataset
+p0 <- MapQuery(
+  anchorset = anchors,
+  query = p0,
+  reference = ret_sub,
+  refdata = 'celltype',
+  reference.reduction = "pca", 
+  reduction.model = "umap"
+)
+
+# save mapped object
+saveRDS(p0, file = 'p0_E14-P2_refmapping.rds')
+# this annotated object sbmitted to GEO as 'p0.rds'
+```
+
+```{r plot results of mapping}
+# create harmony umap of predicted celltypes
+DimPlot(p0, reduction = 'umap.harmony', group.by = 'predicted.id')
+ggsave('p0_umap.harmony_predicted.id.tif')
+
+DimPlot(p0, reduction = 'umap.harmony', group.by = 'predicted.id', split.by = 'genotype')
+ggsave('p0_umap.harmony_predicted.id_bygenotype.pdf', width = 14)
+```
+
+# Customize UMAPs
+
+```{r create UMAPs with uniform color palette}
+# load in object
+p0 <- readRDS(file = 'p0_E14-P2_refmapping.rds')
+
+# set custom colors
+palette <- c("Amacrine_Cells" = "#332288", "Developing_AC_HC" = "#117733", "Developing_Cones" = "#44AA99", "Developing_Rods" = "#CC6677" , "Early_Progenitors" = "#666633", "HC_AC_Precursors" = "#DDCC77", "HC_AC_RGC_Precursors" = "#33BBEE", "Late_Progenitors" = "#882255", "Neurogenic_Precursors" = "#AA4499", "Retinal_Ganglion_Cells" = "#EE7733", "Bipolar_Cells" = "#66CCEE", "Cones" = "#228833", "Horizontal_Cells" = "#CCBB44", "Muller_Glia" = "#EE6677", "Rods" = "#AA3377")
+
+# create umaps for each genotype
+genotypes <- c('WT', 'KO')
+
+## subset out celltypes with small numbers
+celltypes <- c("Amacrine_Cells", "Bipolar_Cells", "Cones", "Developing_Cones", "Horizontal_Cells", "Muller_Glia", "Retinal_Ganglion_Cells", "Rods", "Developing_Rods", "Early_Progenitors", "Late_Progenitors", "Neurogenic_Precursors", "Developing_AC_HC", "HC_AC_RGC_Precursors", "HC_AC_Precursors")
+p0_sub <- subset(p0, subset = predicted.id %in% celltypes)
+
+
+for (geno in genotypes){
+  sub <- subset(p0_sub, subset = genotype == geno)
+
+  DimPlot(sub, reduction='umap.harmony', group.by = 'predicted.id', raster=FALSE, cols = palette, label = TRUE, pt.size = 1, stroke = 0, shuffle = TRUE)
+  ggsave(file= paste0('p0_', geno, '_umap_harmony_bypredictedid.pdf'), width = 10)
+}
+```
+
+
+# Compare cell class proportions for KO vs WT
+IDs based on predicted celltypes
+
+```{r calculate and plot proportions}
+# create dataframe of cell class proportions
+p0.proportions <- prop.table(table(p0$predicted.id, p0$sample),2)
+
+#reorganize data
+library(reshape)
+library(plyr)
+p0.comparison <- melt(p0.proportions, id=c("X"))
+colnames(p0.comparison) <- c('Celltype', 'Sample', 'Proportion')
+p0.comparison$genotype <- plyr::mapvalues(p0.comparison$Sample,
+                                 from = c('WTP0M1', 'WTP0M2', 'WTP0F1', 'WTP0F2', 'KOP0M1', 'KOP0M2', 'KOP0F1', 'KOP0F2'),
+                                 to = c('WT', 'WT', 'WT', 'WT', 'KO', 'KO', 'KO', 'KO'))
+
+p0.comparison$genotype <- factor(p0.comparison$genotype, levels=rev(c('WT', 'KO')))
+p0.comparison$Sample <- factor(p0.comparison$Sample, levels=rev(c('WTP0M1', 'WTP0M2', 'KOP0M1', 'KOP0M2','WTP0F1', 'WTP0F2', 'KOP0F1', 'KOP0F2')))
+```
+
+
+```{r plot proportions}
+# plot data
+library(ggplot2)
+
+# set color palette
+palette <- c("Amacrine_Cells" = "#332288", "Developing_AC_HC" = "#117733", "Developing_Cones" = "#44AA99", "Developing_Rods" = "#CC6677" , "Early_Progenitors" = "#666633", "HC_AC_Precursors" = "#DDCC77", "HC_AC_RGC_Precursors" = "#33BBEE", "Late_Progenitors" = "#882255", "Neuroepithelial_Progenitors" = "lightgrey", "Neurogenic_Precursors" = "#AA4499", "Retinal_Ganglion_Cells" = "#EE7733", "Bipolar_Cells" = "#66CCEE", "Cones" = "#228833", "Horizontal_Cells" = "#CCBB44", "Muller_Glia" = "#EE6677", "Rods" = "#AA3377")
+
+
+# stacked bar plots by sample
+p0.comparison %>%
+  ggplot(aes(x=Sample, y=Proportion, fill=Celltype))+
+  geom_bar(position = 'stack', stat = 'identity') +
+  theme_classic() +
+  RotatedAxis() +
+  coord_flip() +
+  scale_fill_manual(values = palette)
+
+ggsave(filename = 'p0_stackedbar_cellclassproportions_predictedcelltypebysample.pdf')
+
+# stacked bar plots by genotype
+p0.comparison %>%
+  ggplot(aes(x=genotype, y=Proportion, fill=Celltype))+
+  geom_bar(position = 'stack', stat = 'identity') +
+  theme_classic() +
+  RotatedAxis() +
+  coord_flip() +
+  scale_fill_manual(values = palette)
+
+ggsave(filename = 'p0_stackedbar_cellclassproportions_predictedcelltypebygenotype.pdf')
+```
+
+## Run differential abundance analysis for cell class proportions
+Based on EdgeR differential abundance analysis
+
+```{r create tables of cell counts}
+p0 <- readRDS(file = 'p0_E14-P2-refmapping.rds')
+
+# create table of celltypes by sample
+cellcounts <- table(p0$predicted.id, p0$sample)
+
+# Filter out celltypes with low counts
+mincells <- 100L
+cellcounts <- cellcounts[rowSums(cellcounts) > mincells,]
+```
+
+```{r use edgeR to calculate statistics}
+# load in packages
+library(edgeR)
+
+dP0 <- DGEList(cellcounts,
+                samples = data.frame(row.names = colnames(cellcounts),
+                                     Genotype = factor(substring(colnames(cellcounts), 1, 2), levels = c("WT", "KO")))
+designP0 <- model.matrix(~ Genotype, dP0$samples)
+
+dP0 <- estimateDisp(dP0, designP0, trend = "none")
+summary(dP0$common.dispersion)
+fit.P0 <- glmQLFit(dP0, designP0, robust = TRUE, abundance.trend = FALSE)
+summary(fit.P0$var.prior)
+summary(fit.P0$df.prior)
+
+tiff("AllSamples/P0_QL_dispersion_2024-07-11.tiff", compression = "lzw", res = 200, width = 7 * 200, height = 5 * 200)
+plotQLDisp(fit.P0, cex = 1)
+dev.off()
+
+# statistical significance for celltypes
+# significant change in developing rods and amacrines
+res.P0 <- glmQLFTest(fit.P0, coef = 2)
+p0.stat <- topTags(res.P0)
+write.csv(p0.stat, file = 'p0_proportiontable_statistics.csv')
+```
+
+# Cell Cycle Scoring
+
+```{r load in data and required lists}
+# load libraries
+library(Seurat)
+library(dplyr)
+library(ggplot2)
+library(harmony)
+
+# load in lists of cell cycle genes
+library(gprofiler2)
+mmus_s = gorth(cc.genes.updated.2019$s.genes, source_organism = "hsapiens", target_organism = "mmusculus")$ortholog_name
+mmus_g2m = gorth(cc.genes.updated.2019$g2m.genes, source_organism = "hsapiens", target_organism = "mmusculus")$ortholog_name
+
+# load in object
+p0 <- readRDS(file = 'p0_E14-P2-refmapping.rds')
+```
+
+
+```{r assign cell cycle scores}
+p0 <- CellCycleScoring(p0, s.features = mmus_s, g2m.features = mmus_g2m, set.ident = TRUE)
+```
+
+```{r look at results of scoring}
+# look at scores plotted on umap
+DimPlot(p0, reduction = 'umap.harmony', group.by = 'Phase')
+ggsave(file = 'umap_p0_cellcyclephase.tif')
+
+DimPlot(p0, reduction = 'umap.harmony', group.by = 'Phase', split.by = 'genotype')
+ggsave(file = 'umap_p0_cellcyclephase_bygenotype.tif', width = 14)
+```
+
+```{r look at phase proportions}
+# calculate proportion table of cell cycle phase by sample
+proportions <- prop.table(table(p0$Phase, p0$sample),2) # 2 indicates to create by columns
+
+# reshape data and annotate data
+comparison <- data.frame(proportions)
+colnames(comparison) <- c('Phase', 'Sample', 'Proportion')
+comparison$Genotype <- plyr::mapvalues(comparison$Sample,
+                                 from = c('WTP0M1', 'WTP0M2', 'WTP0F1', 'WTP0F2', 'KOP0M1', 'KOP0M2', 'KOP0F1', 'KOP0F2'),
+                                 to = c('WT', 'WT', 'WT', 'WT', 'KO', 'KO', 'KO', 'KO'))
+# plot proportions
+library(ggplot2)
+
+comparison$Genotype <- factor(comparison$Genotype, levels=c('WT', 'KO'))
+comparison$Sample <- factor(comparison$Sample, levels=c('WTP0M1', 'WTP0M2', 'KOP0M1', 'KOP0M2','WTP0F1', 'WTP0F2', 'KOP0F1', 'KOP0F2'))
+
+# by sample
+comparison %>%
+  ggplot(aes(x=Sample, y=Proportion, fill=Phase))+
+  geom_bar(position = 'stack', stat = 'identity') +
+  theme_classic() +
+  RotatedAxis()
+
+ggsave(filename = 'p0_stackedbar_cellcycleproportions_bysample.tif')
+
+#by genotype
+comparison %>%
+  ggplot(aes(x=Genotype, y=Proportion, fill=Phase))+
+  geom_bar(position = 'stack', stat = 'identity') +
+  theme_classic() +
+  RotatedAxis()
+
+ggsave(filename = 'p0_stackedbar_cellcycleproportions_bygeno.tif', width = 14)
+```
+
+```{r calculate statistical significance of phase differences}
+# create table of celltypes by sample
+cellcounts <- table(p0$Phase, p0$sample)
+
+# use edgeR to calculate statistics
+# load in packages
+library(edgeR)
+
+dP0 <- DGEList(cellcounts,
+                samples = data.frame(row.names = colnames(cellcounts),
+                                     Genotype = factor(substring(colnames(cellcounts), 1, 2), levels = c("WT", "KO")),
+                                     Sex = substring(colnames(cellcounts), 5, 5)))
+designP0 <- model.matrix(~ Genotype, dP0$samples)
+
+dP0 <- estimateDisp(dP0, designP0, trend = "none")
+summary(dP0$common.dispersion) # all 0.0692
+fit.P0 <- glmQLFit(dP0, designP0, robust = TRUE, abundance.trend = FALSE)
+summary(fit.P0$var.prior) # all 21.11
+summary(fit.P0$df.prior) # all 1.43
+
+tiff("p0_QL_dispersion_cellcyclephase.tiff", compression = "lzw", res = 200, width = 7 * 200, height = 5 * 200)
+plotQLDisp(fit.P0, cex = 1)
+dev.off()
+
+# statistical significance for cell cycle phase
+res.P0 <- glmQLFTest(fit.P0, coef = 2)
+P0.stat <- topTags(res.P0)
+write.csv(P0.stat, file = 'p0_cellcyclephase_proportiontable_statistics.csv')
+```

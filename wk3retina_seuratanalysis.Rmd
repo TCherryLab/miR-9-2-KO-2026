@@ -1,0 +1,580 @@
+---
+title: "wk3retina_Seurat5"
+output: html_document
+date: "2024-09-18"
+author: "LuLu Callies"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r load libraries}
+library(Seurat)
+library(dplyr)
+library(ggplot2)
+library(harmony)
+```
+
+```{r Adjust the maximum size of global objects}
+# (this may need to be increased later)
+options(future.globals.maxSize = 200 * 1024^3)
+```
+
+# Load in data
+
+```{r Read the 10x files}
+#wildtype
+WT3WM1.data <- Read10X_h5('WT3WM1_output_filtered_seurat.h5')
+WT3WM3.data <- Read10X_h5('WT3WM3_output_filtered_seurat.h5')
+WT3WF1.data <- Read10X_h5('WT3WF1_output_filtered_seurat.h5')
+WT3WF2.data <- Read10X_h5('WT3WF2_output_filtered_seurat.h5')
+WT3WF3.data <- Read10X_h5('WT3WF3_output_filtered_seurat.h5')
+#knockout
+KO3WM1.data <- Read10X_h5('KO3WM1_output_filtered_seurat.h5')
+KO3WM3.data <- Read10X_h5('KO3WM3_output_filtered_seurat.h5')
+KO3WF1.data <- Read10X_h5('KO3WF1_output_filtered_seurat.h5')
+KO3WF2.data <- Read10X_h5('KO3WF2_output_filtered_seurat.h5')
+KO3WF3.data <- Read10X_h5('KO3WF3_output_filtered_seurat.h5')
+```
+
+# Create Seurat objects
+```{r Create Seurat objects}
+# Create Seurat objects
+#wildtype
+WT3WM1 <- CreateSeuratObject(counts = WT3WM1.data, project = "WT3WM1", min.cells = 3, min.features = 200)
+WT3WM3 <- CreateSeuratObject(counts = WT3WM3.data, project = "WT3WM3", min.cells = 3, min.features = 200)
+WT3WF1 <- CreateSeuratObject(counts = WT3WF1.data, project = "WT3WF1", min.cells = 3, min.features = 200)
+WT3WF2 <- CreateSeuratObject(counts = WT3WF2.data, project = "WT3WF2", min.cells = 3, min.features = 200)
+WT3WF3 <- CreateSeuratObject(counts = WT3WF3.data, project = "WT3WF3", min.cells = 3, min.features = 200)
+#knockout
+KO3WM1 <- CreateSeuratObject(counts = KO3WM1.data, project = "KO3WM1", min.cells = 3, min.features = 200)
+KO3WM3 <- CreateSeuratObject(counts = KO3WM3.data, project = "KO3WM3", min.cells = 3, min.features = 200)
+KO3WF1 <- CreateSeuratObject(counts = KO3WF1.data, project = "KO3WF1", min.cells = 3, min.features = 200)
+KO3WF2 <- CreateSeuratObject(counts = KO3WF2.data, project = "KO3WF2", min.cells = 3, min.features = 200)
+KO3WF3 <- CreateSeuratObject(counts = KO3WF3.data, project = "KO3WF3", min.cells = 3, min.features = 200)
+```
+
+```{r add mitochondrial percentages}
+#wildtype
+WT3WM1[["percent.mt"]] <- PercentageFeatureSet(WT3WM1, pattern = "^mt-")
+WT3WM3[["percent.mt"]] <- PercentageFeatureSet(WT3WM3, pattern = "^mt-")
+WT3WF1[["percent.mt"]] <- PercentageFeatureSet(WT3WF1, pattern = "^mt-")
+WT3WF2[["percent.mt"]] <- PercentageFeatureSet(WT3WF2, pattern = "^mt-")
+WT3WF3[["percent.mt"]] <- PercentageFeatureSet(WT3WF3, pattern = "^mt-")
+#knockout
+KO3WM1[["percent.mt"]] <- PercentageFeatureSet(KO3WM1, pattern = "^mt-")
+KO3WM3[["percent.mt"]] <- PercentageFeatureSet(KO3WM3, pattern = "^mt-")
+KO3WF1[["percent.mt"]] <- PercentageFeatureSet(KO3WF1, pattern = "^mt-")
+KO3WF2[["percent.mt"]] <- PercentageFeatureSet(KO3WF2, pattern = "^mt-")
+KO3WF3[["percent.mt"]] <- PercentageFeatureSet(KO3WF3, pattern = "^mt-")
+```
+
+```{r Visualize QC metrics}
+# (will split by 'orig.ident')
+
+#wildtype
+VlnPlot(WT3WM1, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, pt.size=0, log = TRUE)
+ggsave(file= 'WT3WM1_qc.pdf')
+
+VlnPlot(WT3WM3, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, pt.size=0, log = TRUE)
+ggsave(file= 'WT3WM3_qc.pdf')
+
+VlnPlot(WT3WF1, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, pt.size=0, log = TRUE)
+ggsave(file= 'WT3WF1_qc.pdf')
+
+VlnPlot(WT3WF2, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, pt.size=0, log = TRUE)
+ggsave(file= 'WT3WF2_qc.pdf')
+
+VlnPlot(WT3WF3, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, pt.size=0, log = TRUE)
+ggsave(file= 'WT3WF3_qc.pdf')
+
+#knockout
+VlnPlot(KO3WM1, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, pt.size=0, log = TRUE)
+ggsave(file= 'KO3WM1_qc.pdf')
+
+VlnPlot(KO3WM3, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, pt.size=0, log = TRUE)
+ggsave(file= 'KO3WM3_qc.pdf')
+
+VlnPlot(KO3WF1, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, pt.size=0, log = TRUE)
+ggsave(file= 'KO3WF1_qc.pdf')
+
+VlnPlot(KO3WF2, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, pt.size=0, log = TRUE)
+ggsave(file= 'KO3WF2_qc.pdf')
+
+VlnPlot(KO3WF3, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, pt.size=0, log = TRUE)
+ggsave(file= 'KO3WF3_qc.pdf')
+```
+
+```{r Subset the data based on QC metric cutoffs}
+#wildtype
+WT3WM1 <- subset(WT3WM1, subset = nCount_RNA > 500 & nCount_RNA < 100000 & percent.mt < 5)
+WT3WM3 <- subset(WT3WM3, subset = nCount_RNA > 500 & nCount_RNA < 100000 & percent.mt < 5)
+WT3WF1 <- subset(WT3WF1, subset = nCount_RNA > 500 & nCount_RNA < 100000 & percent.mt < 5)
+WT3WF2 <- subset(WT3WF2, subset = nCount_RNA > 500 & nCount_RNA < 100000 & percent.mt < 5)
+WT3WF3 <- subset(WT3WF3, subset = nCount_RNA > 500 & nCount_RNA < 100000 & percent.mt < 5)
+#knockout
+KO3WM1 <- subset(KO3WM1, subset = nCount_RNA > 500 & nCount_RNA < 100000 & percent.mt < 5)
+KO3WM3 <- subset(KO3WM3, subset = nCount_RNA > 500 & nCount_RNA < 100000 & percent.mt < 5)
+KO3WF1 <- subset(KO3WF1, subset = nCount_RNA > 500 & nCount_RNA < 100000 & percent.mt < 5)
+KO3WF2 <- subset(KO3WF2, subset = nCount_RNA > 500 & nCount_RNA < 100000 & percent.mt < 5)
+KO3WF3 <- subset(KO3WF3, subset = nCount_RNA > 500 & nCount_RNA < 100000 & percent.mt < 5)
+```
+
+```{r Merge into single Seurat object}
+wk3=merge(WT3WM1, y = c(WT3WM3, WT3WF1, WT3WF2, WT3WF3, KO3WM1, KO3WM3, KO3WF1, KO3WF2, KO3WF3), 
+          add.cell.ids = c('WT3WM1', 'WT3WM3', 'WT3WF1', 'WT3WF2', 'WT3WF3', 'KO3WM1', 'KO3WM3', 'KO3WF1', 'KO3WF2', 'KO3WF3'))
+```
+
+```{r Visualize QC metrics}
+# (will split by 'orig.ident')
+VlnPlot(wk3, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), ncol = 3, pt.size=0, log = TRUE)
+ggsave(file= 'wk3_cellbender_QC.pdf')
+```
+
+```{r Add sample and condition information to metadata}
+wk3$batch <- plyr::mapvalues(
+  x = wk3$orig.ident,
+  from = c('WT3WM1', 'WT3WM3', 'WT3WF1', 'WT3WF2', 'WT3WF3', 'KO3WM1', 'KO3WM3', 'KO3WF1', 'KO3WF2', 'KO3WF3'),
+  to = c('batch1', 'batch2', 'batch1', 'batch3', 'batch3', 'batch1', 'batch2', 'batch1', 'batch3', 'batch3')
+)
+
+wk3$sample <- plyr::mapvalues(
+  x = wk3$orig.ident, 
+  from = c('WT3WM1', 'WT3WM3', 'WT3WF1', 'WT3WF2', 'WT3WF3', 'KO3WM1', 'KO3WM3', 'KO3WF1', 'KO3WF2', 'KO3WF3'), 
+  to = c('WT3WM1', 'WT3WM3', 'WT3WF1', 'WT3WF2', 'WT3WF3', 'KO3WM1', 'KO3WM3', 'KO3WF1', 'KO3WF2', 'KO3WF3')
+)
+
+wk3$timepoint <- plyr::mapvalues(
+  x = wk3$orig.ident, 
+  from = c('WT3WM1', 'WT3WM3', 'WT3WF1', 'WT3WF2', 'WT3WF3', 'KO3WM1', 'KO3WM3', 'KO3WF1', 'KO3WF2', 'KO3WF3'), 
+  to = c('3wk','3wk','3wk','3wk','3wk','3wk', '3wk', '3wk', '3wk', '3wk')
+)
+
+wk3$genotype <- plyr::mapvalues(
+  x = wk3$orig.ident, 
+  from = c('WT3WM1', 'WT3WM3', 'WT3WF1', 'WT3WF2', 'WT3WF3', 'KO3WM1', 'KO3WM3', 'KO3WF1', 'KO3WF2', 'KO3WF3'), 
+  to = c('WT','WT', 'WT', 'WT','WT','KO','KO','KO','KO','KO')
+)
+
+wk3$sex <- plyr::mapvalues(
+  x = wk3$orig.ident, 
+  from = c('WT3WM1', 'WT3WM3', 'WT3WF1', 'WT3WF2', 'WT3WF3', 'KO3WM1', 'KO3WM3', 'KO3WF1', 'KO3WF2', 'KO3WF3'), 
+  to = c('male', 'male', 'female', 'female', 'female', 'male', 'male', 'female', 'female', 'female')
+)
+```
+
+```{r Save merged Seurat objects}
+saveRDS(wk3, file = "wk3.rds")
+```
+
+# Initial Analysis
+
+```{r load in data}
+wk3 <- readRDS('wk3.rds')
+```
+
+# Without integration
+
+```{r Run SCTransform and PCA}
+# Split object by batches and analyze without integration
+wk3 <- JoinLayers(wk3)
+
+# Split into layers by batch
+wk3[['RNA']] <- split(wk3[['RNA']], f = wk3$batch) 
+
+# initial processing
+wk3 <- SCTransform(wk3, vars.to.regress = "percent.mt", verbose = FALSE)
+wk3 <- RunPCA(wk3, verbose = FALSE)
+wk3 <- RunUMAP(wk3, dims = 1:30)
+```
+
+
+```{r Visualize pca without batch correction}
+DimPlot(wk3, reduction = 'pca', group.by = 'sample')
+ggsave(file= 'wk3_pca_unintegrated_bysample.pdf')
+
+DimPlot(wk3, reduction = 'pca', group.by = 'batch', split.by = 'sample', ncol = 5)
+ggsave(file= 'wk3_pca_unintegrated_bybatch-sample.pdf')
+
+DimPlot(wk3, reduction = 'pca', group.by = 'batch')
+ggsave(file= 'wk3_pca_unintegrated_bybatch.pdf')
+
+ElbowPlot(wk3, ndims=30)
+ggsave(file= 'wk3_elbow.pdf')
+```
+
+
+```{r Visualize umap without batch correction}
+DimPlot(wk3, reduction = 'umap', group.by = 'sample')
+ggsave(file= 'wk3_umap_unintegrated_bysample.pdf')
+
+DimPlot(wk3, reduction = 'umap', group.by = 'batch', split.by = 'sample', ncol = 5)
+ggsave(file= 'wk3_umap_unintegrated_bybatch-sample.pdf')
+
+DimPlot(wk3, reduction = 'umap', group.by = 'batch')
+ggsave(file= 'wk3_umap_unintegrated_bybatch.pdf')
+```
+
+
+## Harmony integration
+
+```{r integrate with harmony}
+# integrate layers
+wk3_harmony <- IntegrateLayers(object = wk3, method = HarmonyIntegration, normalization.method = 'SCT', new.reduction = "harmony")
+
+# finish analysis
+wk3_harmony <- FindNeighbors(wk3_harmony, reduction = 'harmony', dims = 1:30)
+wk3_harmony <- FindClusters(wk3_harmony, resolution = 0.4)
+wk3_harmony <- RunUMAP(wk3_harmony, reduction = "harmony", dims = 1:30, reduction.name = "umap.harmony")
+
+# save harmony object
+saveRDS(wk3_harmony, file = 'wk3_harmony.rds')
+```
+
+```{r Visualize umaps with harmony}
+DimPlot(wk3_harmony, reduction = 'umap.harmony', group.by = 'sample')
+ggsave(file= 'wk3_umap.harmony_integrated_bysample.pdf')
+
+DimPlot(wk3_harmony, reduction = 'umap.harmony', group.by = 'batch', split.by = 'sample', ncol = 5)
+ggsave(file= 'wk3_umap.harmony_integrated_bybatch-sample.pdf')
+
+DimPlot(wk3_harmony, reduction = 'umap.harmony', group.by = 'batch')
+ggsave(file= 'wk3_umap.harmony_integrated_bybatch.pdf')
+
+DimPlot(wk3_harmony, reduction = 'umap.harmony', group.by = 'seurat_clusters')
+ggsave(file= 'wk3_umap.harmony_integrated_bycluster.pdf')
+
+DimPlot(wk3_harmony, reduction = 'umap.harmony', group.by = 'seurat_clusters', split.by = 'genotype')
+ggsave(file= 'wk3_umap.harmony_integrated_bycluster-genotype.pdf')
+
+DimPlot(wk3_harmony, reduction = 'umap.harmony', group.by = 'genotype')
+ggsave(file= 'wk3_umap.harmony_integrated_groupbygenotype.pdf')
+
+DimPlot(wk3_harmony, reduction = 'umap.harmony', group.by = 'genotype', split.by = 'genotype')
+ggsave(file= 'wk3_umap.harmony_integrated_splitbygenotype.pdf')
+
+DimPlot(wk3_harmony, reduction = 'umap.harmony', group.by = 'genotype', split.by = 'batch')
+ggsave(file= 'wk3_umap.harmony_integrated_bygenotype-batch.pdf')
+```
+
+Proceeding with Harmony based on batch effects
+
+```{r Save object}
+# Rejoin layers before downstream analysis
+DefaultAssay(wk3_harmony) = 'RNA'
+wk3_harmony <- JoinLayers(wk3_harmony)
+
+# save object
+saveRDS(wk3_harmony, file = "wk3_clusters.rds")
+```
+
+# Cluster Identification - Clustermarkers
+
+```{r ignoreoad object}
+#ignoreoad
+wk3 <- readRDS("wk3_clusters.rds")
+```
+
+```{r Re-normalize}
+#Set default assay to RNA, then re-normalize (SCT assay is good for data visualization but not quantitative comparisons, according to Satija lab)
+DefaultAssay(wk3) = 'RNA'
+wk3[['RNA']] <- split(wk3[['RNA']], f = wk3$batch)
+wk3 = NormalizeData(wk3)
+wk3 <- JoinLayers(wk3)
+```
+
+```{r look at QC by cluster}
+VlnPlot(wk3, features = c('nFeature_RNA', 'nCount_RNA', 'percent.mt'), pt.size=0)+NoLegend()
+ggsave(file= 'wk3_qc_bycluster.pdf', width=20, height=10)
+```
+
+```{r find cluster markers}
+markers <- FindAllMarkers(wk3, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
+write.csv(markers, file= 'wk3_clustermarkers.csv')
+```
+
+
+#Automated cluster ID -- scMCA
+
+```{r load libraries}
+library(SingleCellExperiment)
+library(scran)
+library(scater)
+library(dplyr)
+library(scMCA)
+library(Seurat)
+library(ggplot2)
+library(stringr)
+```
+
+```{r Adjust size of objects}
+# Adjust the maximum size of global objects (this may need to be increased later)
+options(future.globals.maxSize = 200 * 1024^3)
+```
+
+```{r load in data}
+#data should be a SingleCellExperiment object, of normalized log counts
+#load in Seurat object, with samples GEX-all and subset
+wk3 <- readRDS('wk3_clusters.rds')
+
+#retrieve normalized logcounts
+DefaultAssay(wk3) = 'RNA'
+wk3[['RNA']] <- split(wk3[['RNA']], f = wk3$batch)
+wk3 = NormalizeData(wk3)
+wk3 <- JoinLayers(wk3)
+
+# Retrieve or set data in an expression matrix ('counts', 'data', and 'scale.data')
+mat <- GetAssayData(object = wk3, layer = "counts")
+```
+
+```{r Run scMCA}
+# scMCA has two parameters , single cell expression matrix(scdata) and the number of most similar cell types
+set.seed(1234)
+mca_result <- scMCA(scdata =  mat, numbers_plot = 3)
+save(mca_result,file = "wk3_mca_result.RData")
+#load results
+load("wk3_mca_result.RData")
+```
+
+cors_matrix: Pearson correlation coefficient matrix of each cell and cell type.
+top_cors: equals to numbers_plot
+scMCA: the most relevant cell type for each query cell
+scMCA_probility: the top n relevant cell types for each query cell
+
+```{r Pull out relevant cell types}
+# Extract the top probable
+p <- mca_result$scMCA_probility
+names(p) <- c("Cell","Cell_type", "Score") 
+
+# For ech cell select only those that have to do with retinas or at least 300 cells had that cell type as top one!
+freq_cell <- data.frame(table(p$Cell_type))
+freq_cell <- freq_cell[stringr::str_detect( freq_cell$Var1,'Retina') | freq_cell$Freq>300, ] 
+
+# Save the relevant cell types
+relevant_cell_types <- freq_cell$Var1
+
+# Check the cells wich top 10 cell clusters are not "relative to this study"
+p <- p %>% group_by(Cell) %>% mutate(has_cluster= any(Cell_type%in%relevant_cell_types) )
+ignore_cells <- unique(p$Cell[p$has_cluster==F])
+length(ignore_cells)/length(unique(p$Cell))
+# In this case, only 0.05% of cells had a type that was not relevant
+```
+
+
+```{r Extract cluster IDs}
+relevant_p <- p[p$Cell%in%rougue_cells,]
+relevant_p$Cell_type <- NA
+relevant_p$Score <- 0
+relevant_p$has_cluster <- F
+relevant_p <- unique(relevant_p)
+
+# Select the final selection of cells and their group
+mca_labels <- p %>% group_by(Cell) %>% dplyr::filter(Cell_type%in%relevant_cell_types) %>% dplyr::filter(Score==max(Score)) %>% as.data.frame()
+mca_labels <- rbind(mca_labels, relevant_p)
+mca_labels$Cell <- as.character(mca_labels$Cell)
+rownames(mca_labels) <- mca_labels$Cell
+
+# extract just the new cluster ids from mca pipeline
+celltype <- as.data.frame(mca_labels$Cell_type)
+rownames(celltype) <- rownames(mca_labels)
+colnames(celltype) <- 'celltype'
+```
+
+```{r replace mca names}
+# string replace mca cluster names with shortened versions
+celltype$celltype <- case_when(
+  celltype$celltype == "Rods(Retina)" ~ "Rods",
+  celltype$celltype == "Cones(Retina)" ~ "Cones",
+  celltype$celltype == "Amacrine cell_Tfap2b_high(Retina)" ~ "Amacrine_cells",
+  celltype$celltype == "Rgs16 neurons(Arc-Me)" ~ "Rgs16",
+  celltype$celltype == "Pericytes(Retina)" ~ "Pericytes",
+  celltype$celltype == "Horizontal cells(Retina)" ~ "Horizontal_cells",
+  celltype$celltype == "Retinal ganglion cells(Retina)" ~ "Retinal_ganglion_cells",
+  celltype$celltype == "Amacrine cells_Rims1_high(Retina)" ~ "Amacrine_cells",
+  celltype$celltype == "Microglia(Retina)" ~ "Microglia",
+  celltype$celltype == "Muller glia(Retina)" ~ "Muller_glia",
+  celltype$celltype == "Fibroblasts(Retina)" ~ "Fibroblasts",
+  celltype$celltype == "Astrocytes(Retina)" ~ "Astrocytes",
+  celltype$celltype == "Vascular endothelium(Retina)" ~ "Vascular_endothelium",
+  celltype$celltype == "Amacrine cell_Cplx2_high(Retina)" ~ "Amacrine_cells",
+  celltype$celltype == "Amacrine cell_Lamp5_high(Retina)" ~ "Amacrine_cells",
+  celltype$celltype == "Bipolar cell_Gsg1_high(Retina)" ~ "Bipolar_cells",
+  celltype$celltype == "Bipolar cell_Vsx1_high(Retina)" ~ "Bipolar_cells",
+  celltype$celltype == "Bipolar cell_Lhx4_high(Retina)" ~ "Bipolar_cells",
+  celltype$celltype == "Bipolar cell_Slit2_high(Retina)" ~ "Bipolar_cells",
+  celltype$celltype == "Bipolar cells_Pcp2_high(Retina)" ~ "Bipolar_cells"
+)
+```
+
+```{r add metadata to Seurat object}
+wk3 <- readRDS('wk3_clusters.rds')
+wk3 <- AddMetaData(wk3, celltype)
+head(wk3@meta.data)
+```
+
+```{r save object}
+saveRDS(wk3, 'wk3_refmapping.rds')
+# this annotated object submitted to GEO as 'wk3.rds'
+```
+
+```{r umap by celltype}
+DimPlot(wk3, group.by = 'celltype')
+ggsave(file= 'wk3_umap_celltype.pdf', height=7, width=15, dpi=72)
+
+DimPlot(wk3, reduction='umap.harmony', label=TRUE, group.by = 'celltype')
+ggsave(file= 'wk3_umap_celltype_labeled.pdf', height=7, width=15, dpi=72)
+
+DimPlot(wk3, reduction='umap.harmony', label=TRUE, group.by = 'celltype', split.by = 'batch')
+ggsave(file= 'wk3_umap_celltype-batch.pdf', height=7, width=15, dpi=72)
+```
+
+
+# Create custom UMAP
+
+```{r create UMAP using standardized colors}
+# load in object
+wk3 <- readRDS(file = 'wk3_refmapping.rds')
+
+# remap labels to match capitalization to palette
+wk3$celltype <- plyr::mapvalues(
+  x = wk3$celltype,
+  from = c('Amacrine_Cells', 'Amacrine_cells','Bipolar_cells', 'Muller_glia', 'Horizontal_cells', 'Retinal_ganglion_cells'),
+  to = c('Developing_Amacrine_Cells', 'Amacrine_Cells', 'Bipolar_Cells', 'Muller_Glia', 'Horizontal_Cells', 'Retinal_Ganglion_Cells')
+)
+
+### Generate WT and KO UMAPs using manual custom color palette ###
+palette3 <- c("Amacrine_Cells" = "#332288", "Developing_AC_HC" = "#117733", "Developing_Cones" = "#44AA99", "Developing_Rods" = "#CC6677" , "Early_Progenitors" = "#666633", "HC_AC_Precursors" = "#DDCC77", "HC_AC_RGC_Precursors" = "#33BBEE", "Late_Progenitors" = "#882255", "Neurogenic_Precursors" = "#AA4499", "Retinal_Ganglion_Cells" = "#EE7733", "Bipolar_Cells" = "#66CCEE", "Cones" = "#228833", "Horizontal_Cells" = "#CCBB44", "Muller_Glia" = "#EE6677", "Rods" = "#AA3377")
+
+# create umaps for each genotype
+genotypes <- c('WT', 'KO')
+## subset to only celltypes of interest
+celltypes <- c("Amacrine_Cells", "Bipolar_Cells", "Cones", "Developing_Cones", "Horizontal_Cells", "Muller_Glia", "Retinal_Ganglion_Cells", "Rods", "Developing_Rods", "Early_Progenitors", "Late_Progenitors", "Neurogenic_Precursors", "Developing_AC_HC", "HC_AC_RGC_Precursors", "HC_AC_Precursors")
+
+# numbering system:
+# 1. Amacrine Cells 
+# 2. Developing AC HC
+# 3. Developing Cones
+# 4. Developing Rods
+# 5. Early Progenitors
+# 6. HC AC Precursors
+# 7. HC AC RGC Precursors
+# 8. Late Progenitors
+# 9. Neurogenic Precursors
+# 10. Retinal Ganglion Cells
+# 11. Bipolar Cells
+# 12. Cones
+# 13. Horizontal Cells
+# 14. Muller Glia
+# 15. Rods
+
+wk3_sub <- subset(wk3, subset = celltype %in% celltypes)
+
+for (geno in genotypes){
+  sub <- subset(wk3_sub, subset = genotype == geno)
+
+  DimPlot(sub, reduction='umap.harmony', group.by = 'celltype', cols = palette3, raster=TRUE)
+  ggsave(file= paste0('wk3_', geno, '_umap_harmony_celltypes.pdf'), width = 10, dpi=300)
+}
+```
+
+# Check for expected gene expression
+
+### Standard cell class markers
+```{r cell class marker expression}
+DefaultAssay(wk3) = 'RNA'
+
+genes <- c('Rho', 'Sag', 'Gnat1', 'Gnat2', 'Lhx1', 'Vsx1', 'Vsx2', 'Tfap2b', 'Rbpms', 'Rlbp1', 'Slc1a3', 'Sox9')
+
+for gene (in genes){
+  FeaturePlot(object = wk3, reduction = 'umap.harmony', features= gene, cols = c("lightgrey", "blue"), pt.size = 0.5, split.by = 'genotype')
+  ggsave(paste0('wk3_featureplot_', gene, '_splitbygenotype.pdf'), height = 15, width = 15)
+}
+
+### LINC expression
+
+```{r mir9 expression}
+FeaturePlot(wk3, reduction = 'umap.harmony', features = 'C130071C03Rik', split.by = 'genotype')
+ggsave('wk3_linc_featureplot_splitbygenotype.pdf', width=15)
+```
+
+# Cell class proportions
+
+```{r create dataframe of cell class proportions}
+# load in object
+wk3 <- readRDS(file = 'wk3_refmapping.rds')
+
+# create proportion table
+wk3.proportions <- prop.table(table(wk3$celltype, wk3$sample), 2)
+
+# reshape data into dataframe
+wk3.comparison <- data.frame(wk3.proportions)
+colnames(wk3.comparison) <- c('Celltype', 'Sample', 'Proportion')
+
+# add genotype info
+wk3.comparison$genotype <- plyr::mapvalues(wk3.comparison$Sample,
+                                 from = c('WT3WM1', 'WT3WM3', 'WT3WF1', 'WT3WF2', 'WT3WF3', 'KO3WM1', 'KO3WM3', 'KO3WF1', 'KO3WF2', 'KO3WF3'),
+                                 to = c('WT', 'WT', 'WT', 'WT', 'WT', 'KO', 'KO', 'KO', 'KO', 'KO'))
+```
+
+```{r plot proportions by sample}
+# set colors
+palette3 <- c("Amacrine_Cells" = "#332288", "Developing_AC_HC" = "#117733", "Developing_Cones" = "#44AA99", "Developing_Rods" = "#CC6677" , "Early_Progenitors" = "#666633", "HC_AC_Precursors" = "#DDCC77", "HC_AC_RGC_Precursors" = "#33BBEE", "Late_Progenitors" = "#882255", "Neurogenic_Precursors" = "#AA4499", "Retinal_Ganglion_Cells" = "#EE7733", "Bipolar_Cells" = "#66CCEE", "Cones" = "#228833", "Horizontal_Cells" = "#CCBB44", "Muller_Glia" = "#EE6677", "Rods" = "#AA3377")
+
+wk3.comparison$genotype <- factor(wk3.comparison$genotype, levels=rev(c('WT', 'KO')))
+wk3.comparison$Sample <- factor(wk3.comparison$Sample, levels=rev(c('WT3WM1', 'WT3WM3', 'WT3WF1', 'WT3WF2', 'WT3WF3', 'KO3WM1', 'KO3WM3', 'KO3WF1', 'KO3WF2', 'KO3WF3')))
+
+# create stacked barchart
+wk3.comparison %>%
+  ggplot(aes(x=Sample, y=Proportion, fill=Celltype))+
+  geom_bar(position = 'stack', stat = 'identity') +
+  theme_classic() +
+  scale_fill_manual(values = palette3) +
+  coord_flip() +
+  RotatedAxis()
+
+ggsave(filename = 'wk3_stackedbar_cellclassproportions_bysample.pdf')
+```
+
+
+# Differential abundance analysis
+Based on edgeR differential abundance analysis
+
+```{r create tables of cell counts}
+wk3 <- readRDS(file = 'wk3_refmapping.rds')
+
+# create table of celltypes by sample
+cellcounts <- table(wk3$celltype, wk3$sample)
+
+# Filter out celltypes with low counts
+mincells <- 100L
+cellcounts <- cellcounts[rowSums(cellcounts) > mincells,]
+```
+
+```{r use edgeR to calculate statistics}
+# load in packages
+library(edgeR)
+
+dwk3 <- DGEList(cellcounts,
+                samples = data.frame(row.names = colnames(cellcounts),
+                                     Genotype = factor(substring(colnames(cellcounts), 1, 2), levels = c("WT", "KO")),
+                                     Sex = substring(colnames(cellcounts), 5, 5)))
+designwk3 <- model.matrix(~ Genotype, dwk3$sample)
+
+dwk3 <- estimateDisp(dwk3, designwk3, trend = "none")
+summary(dwk3$common.dispersion)
+fit.wk3 <- glmQLFit(dwk3, designwk3, robust = TRUE, abundance.trend = FALSE)
+summary(fit.wk3$var.prior)
+summary(fit.wk3$df.prior)
+
+tiff("wk3_QL_dispersion.tiff", compression = "lzw", res = 200, width = 7 * 200, height = 5 * 200)
+plotQLDisp(fit.wk3, cex = 1)
+dev.off()
+
+# statistical significance for celltypes
+res.wk3 <- glmQLFTest(fit.wk3, coef = 2)
+wk3.stat <- topTags(res.wk3)
+write.csv(wk3.stat, file = 'wk3_proportiontable_statistics.csv')
+```
+
+
